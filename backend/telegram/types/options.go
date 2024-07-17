@@ -10,9 +10,9 @@ type Options struct {
 	AppHash          string        `config:"app_hash"`
 	BotToken         string        `config:"bot_token"`
 	ChunkSize        fs.SizeSuffix `config:"chunk_size"`
+	ChannelId        int64         `config:"channel_id"`
 	PublicKey        string        `config:"public_key"`
 	PhoneNumber      string        `config:"phone_number"`
 	StringSession    string        `config:"string_session"`
 	MaxConnections   int           `config:"max_connections"`
-	ConnectionString string        `config:"connection_string"`
 }
