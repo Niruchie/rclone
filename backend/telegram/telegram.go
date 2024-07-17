@@ -7,6 +7,7 @@ import (
 
 	"github.com/amarnathcjd/gogram/telegram"
 	"github.com/rclone/rclone/backend/telegram/api"
+	"github.com/rclone/rclone/backend/telegram/filesystem"
 	"github.com/rclone/rclone/backend/telegram/types"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
@@ -299,6 +300,7 @@ func configuration(ctx context.Context, name string, m configmap.Mapper, configI
 func init() {
 	fs.Register(
 		&fs.RegInfo{
+			NewFs:       filesystem.Fs,
 			Config:      configuration,
 			Description: "Telegram",
 			Name:        "telegram",
