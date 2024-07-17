@@ -46,12 +46,6 @@ var options = []fs.Option{
 		Required:  true,
 		Sensitive: true,
 	}, {
-		Help:      "Database URL",
-		Name:      "connection_string",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	}, {
 		Help:     "Display other channel origins",
 		Name:     "display_channel",
 		Advanced: true,
@@ -305,8 +299,8 @@ func configuration(ctx context.Context, name string, m configmap.Mapper, configI
 func init() {
 	fs.Register(
 		&fs.RegInfo{
-			Description: "Telegram Backend (requires database)",
 			Config:      configuration,
+			Description: "Telegram",
 			Name:        "telegram",
 			Options:     options,
 		},
