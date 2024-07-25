@@ -16,7 +16,7 @@ require (
 	github.com/a8m/tree v0.0.0-20240104212747-2c8764a5f17e
 	github.com/aalpar/deheap v0.0.0-20210914013432-0cc84d79dec3
 	github.com/abbot/go-http-auth v0.4.0
-	github.com/amarnathcjd/gogram v0.0.0-20240618123102-2b4d83439b0f
+	github.com/amarnathcjd/gogram v0.0.0-20240724171612-fab347508c06
 	github.com/anacrolix/dms v1.7.1
 	github.com/anacrolix/log v0.16.0
 	github.com/atotto/clipboard v0.1.4

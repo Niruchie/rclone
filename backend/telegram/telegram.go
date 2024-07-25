@@ -14,69 +14,17 @@ import (
 	"github.com/rclone/rclone/fs/config/configstruct"
 )
 
-var options = []fs.Option{
-	{
-		Help:      "Phone number for Telegram API",
-		Name:      "phone_number",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	},
-	{
-		Help:      "App ID for Telegram API",
-		Name:      "app_id",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	}, {
-		Help:      "App Hash for Telegram API",
-		Name:      "app_hash",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	}, {
-		Help:      "Bot Token for Telegram API",
-		Name:      "bot_token",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	}, {
-		Help:      "Public Key for Telegram API (Should be base64 encoded, PEM format)",
-		Name:      "public_key",
-		Advanced:  false,
-		Required:  true,
-		Sensitive: true,
-	}, {
-		Help:     "Display other channel origins",
-		Name:     "display_channel",
-		Advanced: true,
-		Default:  false,
-		Examples: []fs.OptionExample{
-			{Value: "true", Help: "Yes, display uploads from other channels"},
-			{Value: "false", Help: "No, only display uploads from the selected channel"},
-		},
-	}, {
-		Help:     "Maximum number of connections to use",
-		Name:     "max_connections",
-		Provider: "telegram",
-		Advanced: true,
-		Default:  10,
-	}, {
-		Help:     `Files will be uploaded in chunks this size. Note that these chunks might be buffered in memory, increasing them might increase memory use.`,
-		Name:     "chunk_size",
-		Advanced: true,
-		Default:  512 * fs.Mebi,
-		Examples: []fs.OptionExample{
-			{Value: "512", Help: "512 MiB (Fastest)"},
-			{Value: "256", Help: "256 MiB (Faster)"},
-			{Value: "128", Help: "128 MiB (Fast)"},
-			{Value: "64", Help: "64 MiB (Low priority)"},
-			{Value: "32", Help: "32 MiB (High memory usage)"},
-			{Value: "16", Help: "16 MiB (Intensive memory usage)"},
-		},
-	},
-}
-
+// Fetch the token from the Telegram MTProto API.
+//
+// Definition:
+//    fetchTokenMTProto(m *configmap.Mapper) (*fs.ConfigOut, error)
+//
+// Parameters:
+//    m: *configmap.Mapper - The configuration map pointer. | Allows to set and get values from the configuration.
+//
+// This function will fetch the token from the Telegram MTProto API.
+// It will ask for the phone number and the two-factor authentication code if needed.
+// Then it will store the session token in the configuration map, to be used in the next steps.
 func fetchTokenMTProto(m *configmap.Mapper) (*fs.ConfigOut, error) {
 	// ? Parse the config into the struct
 	options := &types.Options{}
@@ -128,6 +76,17 @@ func fetchTokenMTProto(m *configmap.Mapper) (*fs.ConfigOut, error) {
 	}, nil
 }
 
+// Select the channel to use with the bot.
+//
+// Definition:
+//    selectChannelWithBot(m *configmap.Mapper) (*fs.ConfigOut, error)
+//
+// Parameters:
+//    m: *configmap.Mapper - The configuration map pointer. | Allows to set and get values from the configuration.
+//
+// This function will fetch the channels from the Telegram MTProto API
+// and check if the bot is within any of them, then offer the user to select
+// one of the channels to use with rclone client.
 func selectChannelWithBot(m *configmap.Mapper) (*fs.ConfigOut, error) {
 	// ? Parse the config into the struct
 	options := &types.Options{}
@@ -269,6 +228,21 @@ func selectChannelWithBot(m *configmap.Mapper) (*fs.ConfigOut, error) {
 	)
 }
 
+// Configuration function for the Telegram backend.
+//
+// Definition:
+//    configuration(ctx context.Context, name string, m configmap.Mapper, configIn fs.ConfigIn) (*fs.ConfigOut, error)
+//
+// Parameters:
+//    ctx: context.Context - The context of the configuration. | Used to cancel the configuration.
+//    name: string - The name of the backend. | Used to identify the backend.
+//    m: configmap.Mapper - The configuration map. | Allows to set and get values from the configuration.
+//    configIn: fs.ConfigIn - The configuration input. | Contains the state and result of the configuration.
+//
+// This function will handle the configuration of the Telegram backend.
+// It will redirect to the appropriate step based on the state.
+// Also receive the result of each step to pass into the next one.
+// Finally, it will return the configuration output to the rclone client.
 func configuration(ctx context.Context, name string, m configmap.Mapper, configIn fs.ConfigIn) (*fs.ConfigOut, error) {
 	// ? Parse the config into the struct
 	params := &types.Options{}
@@ -297,14 +271,20 @@ func configuration(ctx context.Context, name string, m configmap.Mapper, configI
 	return nil, fmt.Errorf("unexpected state %q", configIn.State)
 }
 
+// Register the Telegram backend.
+//
+// The definition of the backend is registered to the filesystem manager.
+// It will be used to create a new instance of the backend.
+// Parses the configuration and returns the configuration steps.
+// Also, it will be used to mount a new filesystem to the rclone client.
 func init() {
 	fs.Register(
 		&fs.RegInfo{
-			NewFs:       filesystem.Fs,
+			Options:     types.OptionList,
 			Config:      configuration,
+			NewFs:       filesystem.Fs,
 			Description: "Telegram",
 			Name:        "telegram",
-			Options:     options,
 		},
 	)
 }
