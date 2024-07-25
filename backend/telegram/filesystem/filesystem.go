@@ -29,7 +29,8 @@ type Filesystem struct {
 }
 
 func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, error) {
-	var err error
+	var log string = ""
+	var err error = nil
 
 	// ? Create a new Filesystem instance
 	f := &Filesystem{}
@@ -68,14 +69,16 @@ func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, erro
 		return nil, err
 	}
 
-	fs.LogPrintf(fs.LogLevelDebug, "Telegram MTProto API working with: ", me.Username)
+	log = fmt.Sprintf("Telegram MTProto API working with: %s", me.Username)
+	fs.LogPrint(fs.LogLevelInfo, log)
 
 	me, err = bot.GetMe()
 	if err != nil {
 		return nil, err
 	}
 
-	fs.LogPrintf(fs.LogLevelDebug, "Telegram Bot API working with: ", me.Username)
+	log = fmt.Sprintf("Telegram Bot API working with: %s", me.Username)
+	fs.LogPrint(fs.LogLevelInfo, log)
 
 	// ? Set up Filesystem instance
 	f.mtproto = mtproto
@@ -86,12 +89,308 @@ func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, erro
 	return f, nil
 }
 
+// Try to reconnect the Telegram MTProto and Bot instances.
+//
+// Definition:
+//   ActiveReconnect() error
+//
+// Returns:
+//   error - If an error occurs while reconnecting.
+func (f *Filesystem) ActiveReconnect() error {
+	if !f.mtproto.TcpActive() {
+		err := f.mtproto.Reconnect(true)
+		if err != nil {
+			return err
+		}
+	}
+
+	if !f.bot.TcpActive() {
+		err := f.bot.Reconnect(true)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Returns the Telegram MTProto instance from the filesystem.
+//
+// Definition:
+//   MTProto() *telegram.Client
+//
+// The MTProto would try to reconnect if it's not active.
+// If an error occurs while reconnecting, it returns nil.
+func (f *Filesystem) MTProto() *telegram.Client {
+	err := f.ActiveReconnect()
+	if err != nil {
+		return nil
+	}
+
+	return f.mtproto
+}
+
+// Returns the Telegram Bot instance from the filesystem.
+//
+// Definition:
+//   Bot() *telegram.Client
+//
+// The bot would try to reconnect if it's not active.
+// If an error occurs while reconnecting, it returns nil.
+func (f *Filesystem) Bot() *telegram.Client {
+	err := f.ActiveReconnect()
+	if err != nil {
+		return nil
+	}
+
+	return f.bot
+}
+
+// Returns the root, relative and query path for the filesystem.
+//
+// Definition:
+//   Locate(relative string) (string, string, string)
+//
+// Parameters:
+//   relative - The relative path to search for the entry.
+//
+// Returns:
+//   root - The root path of the filesystem.
+//   relative - The relative path of the entry.
+//   query - The query path of the entry.
+func (f *Filesystem) Locate(relative string) (string, string, string) {
+	root := f.Root()
+	absolute := path.Join(root, relative)
+	query := UntrailSlash(absolute)
+
+	log := fmt.Sprintf("Locate query for entry -> Absolute: %s, Relative: %s, Query: %s", absolute, relative, query)
+	fs.LogPrint(fs.LogLevelDebug, log)
+
+	return root, relative, query
+}
+
+// Returns the channel from the filesystem.
+//
+// Definition:
+//   Channel() (*Channel, error)
+//
+// Error is handled by the callee.
+func (f *Filesystem) Channel() (*telegram.Channel, error) {
+	err := f.ActiveReconnect()
+	if err != nil {
+		return nil, err
+	}
+
+	return api.GetChannel(f.mtproto, f.ChannelId)
+}
+
+// Returns all the directories from the directory filesystem tree.
+//
+// Definition:
+//   Directory(query string) (*ForumTopicObj, error)
+//
+// Parameters:
+//   query - The query to search for the directory. | File absolute path.
+//
+// Error is handled by the callee.
+func (f *Filesystem) Directory(query string) (*telegram.ForumTopicObj, error) {
+	var dirTopic *telegram.ForumTopicObj = nil
+
+	channel, err := f.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	topics, err := api.GetTopics(f.mtproto, channel, query)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, topic := range topics {
+		if topic.Title == query {
+			dirTopic = topic
+		}
+	}
+
+	if dirTopic == nil {
+		return nil, fs.ErrorDirNotFound
+	}
+
+	return dirTopic, nil
+}
+
+// Returns all the directories from the directory filesystem tree.
+//
+// Definition:
+//   Directories() ([]*ForumTopicObj, error)
+//
+// Error is handled by the callee.
+func (f *Filesystem) Directories() ([]*telegram.ForumTopicObj, error) {
+	channel, err := f.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	return api.GetTopics(f.mtproto, channel, f.Root())
+}
+
+// Returns the directories from the directory passed.
+//
+// Definition:
+//   DirectoriesFrom(topic *ForumTopicObj) ([]*ForumTopicObj, error)
+//
+// Parameters:
+//   topic - The topic to search for the objects. | Get it from Directory() method.
+//
+// Error is handled by the callee.
+func (f *Filesystem) DirectoriesFrom(topic *telegram.ForumTopicObj) ([]*telegram.ForumTopicObj, error) {
+	var children []*telegram.ForumTopicObj = nil
+
+	channel, err := f.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	topics, err := api.GetTopics(f.mtproto, channel, topic.Title)
+	if err != nil {
+		return topics, err
+	}
+
+	for _, subtopic := range topics {
+		if path.Dir(subtopic.Title) == topic.Title {
+			children = append(children, subtopic)
+		}
+	}
+
+	return children, nil
+}
+
+// Returns the objects in the directory passed.
+//
+// Definition:
+//   Objects(topic *ForumTopicObj) ([]*Object, int64, error)
+//
+// Parameters:
+//   topic - The topic to search for the objects. | Get it from Directory() method.
+//
+// Error is handled by the callee.
+func (f *Filesystem) Objects(topic *telegram.ForumTopicObj) ([]*Object, int64, error) {
+	objects := make([]*Object, 0)
+	var offset int32 = 0
+	var items int64 = 0
+
+	mtproto := f.MTProto()
+	channel, err := f.Channel()
+	if err != nil {
+		return objects, items, err
+	}
+
+	for {
+		log := fmt.Sprintf("Searching for objects (as Telegram Messages) on topic: %s, topicId: %d, offset: %d", topic.Title, topic.ID, offset)
+		fs.LogPrint(fs.LogLevelDebug, log)
+
+		messages, amount, incomplete, next, err := api.SearchMessagesTopic(mtproto, channel, topic, topic.Title, offset)
+		if err != nil {
+			return objects, items, err
+		}
+
+		items += int64(amount)
+		for _, message := range messages {
+			switch found := message.(type) {
+			case *telegram.MessageObj:
+				if path.Dir(found.Message) == topic.Title {
+					log := fmt.Sprintf("Object found (as Telegram Message): %s, offset: %d, id: %d", found.Message, offset, found.ID)
+					fs.LogPrint(fs.LogLevelDebug, log)
+					object := NewObject(f, found)
+					objects = append(objects, &object)
+					continue
+				}
+
+			// ? Skip service messages and ignore other types.
+			default:
+				items--
+				continue
+			}
+		}
+
+		if incomplete && offset != next {
+			offset = next
+			continue
+		}
+
+		return objects, items, nil
+	}
+}
+
+// Searches for an object in the filesystem.
+//
+// Definition:
+//   ObjectSearch(topic *ForumTopicObj, query string) (*Object, error)
+//
+// Parameters:
+//   topic - The topic to search for the object. | Get it from Directory() method.
+//   query - The query to search for the object. | File absolute path.
+//
+// Error is handled by the callee.
+func (f *Filesystem) ObjectSearch(topic *telegram.ForumTopicObj, query string) (*Object, error) {
+	var offset int32 = 0
+
+	mtproto := f.MTProto()
+	channel, err := f.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		log := fmt.Sprintf("Searching for object (as Telegram Message): %s, topic: %s, topicId: %d, offset: %d", query, topic.Title, topic.ID, offset)
+		fs.LogPrint(fs.LogLevelDebug, log)
+
+		messages, _, incomplete, next, err := api.SearchMessagesTopic(mtproto, channel, topic, query, offset)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, message := range messages {
+			switch found := message.(type) {
+			case *telegram.MessageObj:
+				if found.Message == query {
+					log := fmt.Sprintf("Object found (as Telegram Message): %s, offset: %d, id: %d", query, offset, found.ID)
+					fs.LogPrint(fs.LogLevelDebug, log)
+					object := NewObject(f, found)
+					return &object, nil
+				}
+				continue
+
+			// ? Skip service messages and ignore other types.
+			case *telegram.MessageService:
+			default:
+				log := fmt.Sprintf("Ignoring object (as Telegram Message): %s, offset: %d, type: %T", query, offset, found)
+				fs.LogPrint(fs.LogLevelDebug, log)
+				continue
+			}
+		}
+
+		if incomplete && offset != next {
+			offset = next
+			continue
+		}
+
+		log = fmt.Sprintf("Object not found (as Telegram Message): %s", query)
+		fs.LogPrint(fs.LogLevelDebug, log)
+		return nil, fs.ErrorObjectNotFound
+	}
+}
+
 // ? ----- Interface fs.Info -----
 
+// Usage gets the quota information for the Fs.
+//
+// Used by Features() to return the space used.
 func (f *Filesystem) Usage(ctx context.Context) (*fs.Usage, error) {
 	return &fs.Usage{}, nil
 }
 
+// Features returns the optional features of this Fs.
 func (f *Filesystem) Features() *fs.Features {
 	return &fs.Features{
 		ServerSideAcrossConfigs: false,
@@ -106,290 +405,247 @@ func (f *Filesystem) Features() *fs.Features {
 	}
 }
 
+// Name of the remote (as passed into NewFs).
 func (f *Filesystem) Name() string {
 	return f.name
 }
 
+// Root of the remote (as passed into NewFs).
 func (f *Filesystem) Root() string {
 	root := path.Join("/root", Clean(f.root))
 	root = UntrailSlash(path.Clean(root))
 	return root
 }
 
+// Returns the supported hash types of the filesystem.
 func (f *Filesystem) Hashes() hash.Set {
 	return hash.Set(hash.SHA256)
 }
 
+// String returns a description of the filesystem.
 func (f *Filesystem) String() string {
-	return f.name + ":" + f.root
+	return fmt.Sprintf("Telegram backend mounted at: %s:%s", f.name, f.root)
 }
 
+// Precision of the ModTimes in this filesystem.
 func (f *Filesystem) Precision() time.Duration {
-	local := time.Now().Unix()
-
-	server, err := f.mtproto.UpdatesGetState()
+	err := f.ActiveReconnect()
 	if err != nil {
 		return time.Second
 	}
 
-	remote := int64(server.Date) - local
-	if remote <= 0 {
-		return time.Second
-	}
-
-	return time.Duration(remote) * time.Second
+	return f.bot.Ping()
 }
 
 // ? ----- Interface fs.Fs : fs.Info methods -----
 
+// List the objects and directories in dir into entries.
+//
+// Read more about the method at [Fs.List]
+//
+// [Fs.List]: https://pkg.go.dev/github.com/rclone/rclone/fs#Fs.List
 func (f *Filesystem) List(ctx context.Context, relative string) (entries fs.DirEntries, err error) {
-	// ? Get query with absolute path for topic.
-	root := f.Root()
-	relative = Clean(relative)
-	absolute := path.Join(root, relative)
-	query := UntrailSlash(absolute)
-	fs.LogPrint(fs.LogLevelInfo, query)
+	// ? Get locate query for entry.
+	root, _, query := f.Locate(relative)
 
-	// ? Get the channel from API.
-	channel, err := api.GetChannel(f.mtproto, f.ChannelId)
+	// ? Get the directory topic from filesystem.
+	topic, err := f.Directory(query)
 	if err != nil {
-		return entries, err
+		return entries, fs.ErrorListAborted
 	}
 
-	// ? Get the topics from API.
-	topics, err := api.GetTopics(f.mtproto, channel, query)
+	// ? Get the child directory topics from filesystem.
+	topics, err := f.DirectoriesFrom(topic)
 	if err != nil {
-		return entries, err
+		return entries, fs.ErrorListAborted
 	}
 
 	// ? Iterate over the topics and create a new DirEntry for each.
 	// * `topic.Title` must remove root trailed, due to path tree.
 	// * `topic.Date` is int32, convert it to time.Time
-	for _, topic := range topics {
-		if path.Dir(topic.Title) == query {
-			var items int64 = 0
-			var offset int32 = 0
-			trailRoot := TrailSlash(root)
+	for _, subtopic := range topics {
+		trailRoot := TrailSlash(root)
 
-			for {
-				fs.LogPrintf(fs.LogLevelInfo, "Searching for file (as a Telegram Message): %s, topic: %s, topicId: %s, offset: %d", query, topic.Title, topic.ID, offset)
-				_, amount, incomplete, next, err := api.SearchMessagesTopic(f.mtproto, channel, topic, query, offset)
-				if err != nil {
-					return entries, err
-				}
+		_, items, err := f.Objects(subtopic)
 
-				items += amount
-
-				if incomplete && offset != next {
-					offset = next
-					continue
-				}
-
-				break
-			}
-
-			id := fmt.Sprintf("%d", topic.ID)
-			name := strings.TrimPrefix(topic.Title, trailRoot)
-			date := time.Unix(int64(topic.Date), 0)
-			directory := fs.NewDir(name, date).SetID(id)
-
-			// ? Directory attributes
-			// * Unknown size, set to -1
-			directory.SetItems(int64(topic.TopMessage))
-			directory.SetRemote(name)
-			directory.SetItems(items)
-			directory.SetSize(-1)
-			directory.SetID(id)
-
-			entries = append(entries, directory)
+		// !!! Error handling for the objects in the folder.
+		if err != nil {
+			log := fmt.Sprintf("Error getting objects from folder (on Telegram Topic): %s, %s", query, err.Error())
+			fs.LogPrint(fs.LogLevelError, log)
 		}
+
+		name := strings.TrimPrefix(subtopic.Title, trailRoot)
+		date := time.Unix(int64(subtopic.Date), 0)
+		id := fmt.Sprintf("%d", subtopic.ID)
+
+		// ? Directory attributes
+		// * Unknown size, set to -1
+		directory := fs.NewDir(name, date)
+		directory.SetRemote(name)
+		directory.SetItems(items)
+		directory.SetSize(-1)
+		directory.SetID(id)
+
+		entries = append(entries, directory)
+	}
+
+	// ? Get the objects from the directory topic.
+	objects, _, err := f.Objects(topic)
+	if err != nil {
+		return entries, fs.ErrorListAborted
+	}
+
+	// ? Iterate and add each object to the entries.
+	for _, object := range objects {
+		entries = append(entries, object)
 	}
 
 	return entries, nil
 }
 
+// Mkdir makes the directory.
+// Shouldn't return an error if it already exists.
 func (f *Filesystem) Mkdir(ctx context.Context, relative string) error {
-	// ? Get query with absolute path for topic.
-	root := f.Root()
-	relative = Clean(relative)
-	absolute := path.Join(root, relative)
-	query := UntrailSlash(absolute)
+	// ? Get locate query for entry.
+	_, _, query := f.Locate(relative)
+	mtproto := f.MTProto()
+	if mtproto == nil {
+		return fs.ErrorDirNotFound
+	}
 
-	// ? Get the channel from API.
-	channel, err := api.GetChannel(f.mtproto, f.ChannelId)
+	// ? Get the channel from filesystem.
+	channel, err := f.Channel()
 	if err != nil {
-		return err
+		return fs.ErrorDirNotFound
 	}
 
 	// ? Create the topic on the channel.
-	_, created, err := api.CreateTopic(f.mtproto, channel, query)
-	if err == nil && !created {
-		fs.LogPrintf(fs.LogLevelError, "Folder already exists (as a Telegram Topic): %s", query)
-	} else if err == nil {
-		fs.LogPrintf(fs.LogLevelInfo, "Folder created (as a Telegram Topic): %s", query)
-	} else {
-		fs.LogPrintf(fs.LogLevelError, "Error creating folder (as a Telegram Topic): %s", query)
-		return err
-	}
+	log := fmt.Sprintf("Creating folder (as a Telegram Topic): %s", query)
+	fs.LogPrint(fs.LogLevelDebug, log)
 
-	return nil
+	_, created, err := api.CreateTopic(mtproto, channel, query)
+	if err == nil && !created {
+
+		log := fmt.Sprintf("Folder already exists (as a Telegram Topic): %s", query)
+		fs.LogPrint(fs.LogLevelInfo, log)
+		return nil
+
+	} else if err == nil {
+
+		log := fmt.Sprintf("Folder created (as a Telegram Topic): %s", query)
+		fs.LogPrint(fs.LogLevelInfo, log)
+		return nil
+
+	} else {
+
+		log := fmt.Sprintf("Error creating folder (as a Telegram Topic): %s, %s", query, err.Error())
+		fs.LogPrint(fs.LogLevelError, log)
+		return fs.ErrorDirNotFound
+
+	}
 }
 
+// Rmdir removes the directory if empty.
+// Return an error if it doesn't exist or isn't empty.
 func (f *Filesystem) Rmdir(ctx context.Context, relative string) error {
-	// ? Get query with absolute path for topic.
-	root := f.Root()
-	relative = Clean(relative)
-	absolute := path.Join(root, relative)
-	query := UntrailSlash(absolute)
+	// ? Get locate query for entry.
+	_, _, query := f.Locate(relative)
 
-	// ? Get the channel from API.
-	channel, err := api.GetChannel(f.mtproto, f.ChannelId)
+	mtproto := f.MTProto()
+	if mtproto == nil {
+		return fs.ErrorNotDeletingDirs
+	}
+
+	// ? Get the channel from the filesystem.
+	channel, err := f.Channel()
 	if err != nil {
-		return err
+		return fs.ErrorNotDeletingDirs
 	}
 
-	// ? Get the topics from API.
-	topics, err := api.GetTopics(f.mtproto, channel, query)
+	// ? Searching the directory topic to delete.
+	topic, err := f.Directory(query)
 	if err != nil {
-		return err
+		return fs.ErrorDirNotFound
 	}
 
-	amount := len(topics)
-	if amount == 0 {
-		return types.ErrDirectoryNotFound
+	// ? Searching the child directory topics.
+	children, err := f.DirectoriesFrom(topic)
+	if err != nil {
+		return fs.ErrorNotDeletingDirs
 	}
 
-	// ? Iterate the topics searching the topic to delete.
-	var found *telegram.ForumTopicObj = nil
-	var offset int32 = 0
-	var count uint64 = 0
-
-	for _, topic := range topics {
-		if topic.Title == query {
-			if amount > 1 {
-				fs.LogPrintf(fs.LogLevelError, "Error deleting folder (as a Telegram Topic): %s, subfolders were found", query)
-				return types.ErrDirectoryNotRemoved
-			}
-
-			found = topic
-			break
-		}
+	if len(children) > 0 {
+		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, folder is not empty", query)
+		fs.LogPrint(fs.LogLevelError, log)
+		return fs.ErrorDirectoryNotEmpty
 	}
 
-	if found == nil {
-		fs.LogPrintf(fs.LogLevelError, "Error deleting folder (as a Telegram Topic): %s, folder not found", query)
-		return types.ErrDirectoryNotFound
+	// ? Searching for child object on directory topic.
+	// * Message service is ignored from the list.
+	_, items, err := f.Objects(topic)
+	if err != nil {
+		return fs.ErrorNotDeletingDirs
 	}
 
-	for {
-		fs.LogPrintf(fs.LogLevelInfo, "Searching for file (as a Telegram Message): %s, topic: %s, topicId: %s", query, found.Title, found.ID)
-		_, items, incomplete, next, err := api.SearchMessagesTopic(f.mtproto, channel, found, query, offset)
-		if err != nil {
-			return err
-		}
-
-		count += uint64(items)
-
-		if count > 1 { // ? Exclude the service message from Telegram API.
-			fs.LogPrintf(fs.LogLevelError, "Error deleting folder (as a Telegram Topic): %s, folder is not empty", query)
-			return types.ErrDirectoryNotRemoved
-		}
-
-		// ? If the search is incomplete, continue searching.
-		if incomplete && offset != next {
-			continue
-		}
-
-		break
+	if items > 0 {
+		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, folder is not empty", query)
+		fs.LogPrint(fs.LogLevelError, log)
+		return fs.ErrorDirectoryNotEmpty
 	}
 
 	// ? Delete the topic if it's empty.
-	err = api.DeleteTopic(f.mtproto, channel, found)
+	err = api.DeleteTopic(mtproto, channel, topic)
 	if err != nil {
-		fs.LogPrintf(fs.LogLevelError, "Error deleting folder (as a Telegram Topic): %s, %s", query, err.Error())
-		return types.ErrDirectoryNotRemoved
+		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, %s", query, err.Error())
+		fs.LogPrint(fs.LogLevelError, log)
+		return fs.ErrorNotDeletingDirs
 	}
 
 	return nil
 }
 
+// NewObject finds the Object at remote.
+//
+// Read more about the method at [Fs.NewObject]
+//
+// [Fs.NewObject]: https://pkg.go.dev/github.com/rclone/rclone/fs#Fs.NewObject
 func (f *Filesystem) NewObject(ctx context.Context, relative string) (fs.Object, error) {
-	// ? Get query with absolute path for topic.
-	root := f.Root()
-	relative = Clean(relative)
-	absolute := path.Join(root, relative)
-	query := UntrailSlash(absolute)
-	fs.LogPrint(fs.LogLevelInfo, query)
+	// ? Get locate query for entry.
+	_, _, query := f.Locate(relative)
 
-	// ? Get the channel from API.
-	channel, err := api.GetChannel(f.mtproto, f.ChannelId)
-	if err != nil {
-		return nil, err
-	}
-
-	// ? Get the topics from API.
-	// * Search for dir containing topic, to search for files next.
-	topics, err := api.GetTopics(f.mtproto, channel, path.Dir(query))
-	if err != nil {
-		return nil, err
-	}
-
-	var dirTopic *telegram.ForumTopicObj = nil
-	var offset int32 = 0
-
-	// * If remote points to a directory then
-	// * -- fs.ErrorIsDir should be returned.
-	for _, topic := range topics {
-		if topic.Title == query {
-			return nil, fs.ErrorIsDir
-		}
-
-		if topic.Title == path.Dir(query) {
-			dirTopic = topic
-		}
-	}
-
-	// ? Impossible to search for files without a topic.
+	// ? Find the topic containing the file if any.
+	// * Impossible to search for files without a topic.
 	// * If it can't be found it returns the error ErrorObjectNotFound.
-	if dirTopic == nil {
-		fs.LogPrintf(fs.LogLevelError, "Error searching for file (as a Telegram Message): %s, topic not found as a Telegram Topic", query)
-		return nil, fs.ErrorObjectNotFound
+	topic, err := f.Directory(path.Dir(query))
+	if err != nil {
+		return nil, fs.ErrorDirNotFound
 	}
 
-	for {
-		fs.LogPrintf(fs.LogLevelInfo, "Searching for file (as a Telegram Message): %s, topic: %s, topicId: %s, offset: %d", query, dirTopic.Title, dirTopic.ID, offset)
-		items, _, incomplete, next, err := api.SearchMessagesTopic(f.mtproto, channel, dirTopic, query, offset)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range items {
-			switch found := item.(type) {
-			case *telegram.MessageObj:
-				if found.Message == query {
-					fs.LogPrintf(fs.LogLevelInfo, "File found (as a Telegram Message): %s, offset: %d", query, offset)
-					return &Object{
-						absolute:   absolute,
-						relative:   relative,
-						filesystem: f,
-					}, nil
-				}
-			// ? Skip service messages and ignore other types.
-			case *telegram.MessageService:
-			default:
-				continue
+	// ? Get the child directory topics from filesystem.
+	// * Search for dir containing topic, to search for files next.
+	if topics, err := f.DirectoriesFrom(topic); err == nil {
+		// * If remote points to a directory then
+		// * -- fs.ErrorIsDir should be returned.
+		for _, topic := range topics {
+			if topic.Title == query {
+				return nil, fs.ErrorIsDir
 			}
 		}
-
-		if incomplete && offset != next {
-			offset = next
-			continue
-		}
-
-		return nil, fs.ErrorObjectNotFound
+	} else {
+		return nil, fs.ErrorDirNotFound
 	}
+
+	return f.ObjectSearch(topic, query)
 }
 
+// Put in to the remote path with the modTime given of the given size
+//
+// Read more about the method at [Fs.Put]
+//
+// [Fs.Put]: https://pkg.go.dev/github.com/rclone/rclone/fs#Fs.Put
 func (f *Filesystem) Put(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (fs.Object, error) {
-	return nil, types.ErrUnsupportedOperation
+	log := fmt.Sprintf("Put: %s Size: %d ModTime: %v", src.Remote(), src.Size(), src.ModTime(ctx))
+	fs.LogPrint(fs.LogLevelInfo, log)
+
+	return nil, fs.ErrorNotImplemented
 }
