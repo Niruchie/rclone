@@ -10,7 +10,6 @@ import (
 
 	"github.com/rclone/rclone/backend/telegram/api"
 	"github.com/rclone/rclone/backend/telegram/types"
-
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
 	"github.com/rclone/rclone/fs/config/configstruct"
@@ -20,15 +19,14 @@ import (
 )
 
 type Filesystem struct {
-	mtproto *telegram.Client
-	bot     *telegram.Client
-	name    string
-	root    string
-	types.Options
+	hash hash.Type
+	name string
+	root string
+	api.TelegramClient
 	fs.Fs
 }
 
-func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, error) {
+func Fs(ctx context.Context, name string, root string, m configmap.Mapper) (fs.Fs, error) {
 	var log string = ""
 	var err error = nil
 
@@ -41,30 +39,18 @@ func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, erro
 		return nil, err
 	}
 
-	// ? Create a new Telegram MTProto instance
-	mtproto, err := api.GetClientMTProto(
-		f.AppId, f.AppHash,
-		f.PublicKey,
-		f.StringSession,
-	)
-
+	// ? Create a new Telegram API connection
+	err = f.Connect()
 	if err != nil {
 		return nil, err
 	}
 
-	// ? Create a new Telegram Bot instance
-	bot, err := api.GetClientBot(
-		f.AppId, f.AppHash,
-		f.PublicKey,
-		f.BotToken,
-	)
-
-	if err != nil {
-		return nil, err
-	}
+	// ? Register the hash types for the filesystem.
+	size := types.NewTelegramMultipartHasher().Size()
+	registeredType := hash.RegisterHash("telegramhashmulti", "TelegramMultipartHash", size, types.NewTelegramMultipartHasher)
 
 	// ? Debugging the Telegram API connections
-	me, err := mtproto.GetMe()
+	me, err := f.MTProto().GetMe()
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +58,7 @@ func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, erro
 	log = fmt.Sprintf("Telegram MTProto API working with: %s", me.Username)
 	fs.LogPrint(fs.LogLevelInfo, log)
 
-	me, err = bot.GetMe()
+	me, err = f.Bot().GetMe()
 	if err != nil {
 		return nil, err
 	}
@@ -81,83 +67,28 @@ func Fs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, erro
 	fs.LogPrint(fs.LogLevelInfo, log)
 
 	// ? Set up Filesystem instance
-	f.mtproto = mtproto
+	f.hash = registeredType
 	f.root = root
 	f.name = name
-	f.bot = bot
 
 	return f, nil
-}
-
-// Try to reconnect the Telegram MTProto and Bot instances.
-//
-// Definition:
-//   ActiveReconnect() error
-//
-// Returns:
-//   error - If an error occurs while reconnecting.
-func (f *Filesystem) ActiveReconnect() error {
-	if !f.mtproto.TcpActive() {
-		err := f.mtproto.Reconnect(true)
-		if err != nil {
-			return err
-		}
-	}
-
-	if !f.bot.TcpActive() {
-		err := f.bot.Reconnect(true)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Returns the Telegram MTProto instance from the filesystem.
-//
-// Definition:
-//   MTProto() *telegram.Client
-//
-// The MTProto would try to reconnect if it's not active.
-// If an error occurs while reconnecting, it returns nil.
-func (f *Filesystem) MTProto() *telegram.Client {
-	err := f.ActiveReconnect()
-	if err != nil {
-		return nil
-	}
-
-	return f.mtproto
-}
-
-// Returns the Telegram Bot instance from the filesystem.
-//
-// Definition:
-//   Bot() *telegram.Client
-//
-// The bot would try to reconnect if it's not active.
-// If an error occurs while reconnecting, it returns nil.
-func (f *Filesystem) Bot() *telegram.Client {
-	err := f.ActiveReconnect()
-	if err != nil {
-		return nil
-	}
-
-	return f.bot
 }
 
 // Returns the root, relative and query path for the filesystem.
 //
 // Definition:
-//   Locate(relative string) (string, string, string)
+//
+//	Locate(relative string) (string, string, string)
 //
 // Parameters:
-//   relative - The relative path to search for the entry.
+//
+//	relative - The relative path to search for the entry.
 //
 // Returns:
-//   root - The root path of the filesystem.
-//   relative - The relative path of the entry.
-//   query - The query path of the entry.
+//
+//	root - The root path of the filesystem.
+//	relative - The relative path of the entry.
+//	query - The query path of the entry.
 func (f *Filesystem) Locate(relative string) (string, string, string) {
 	root := f.Root()
 	absolute := path.Join(root, relative)
@@ -172,40 +103,49 @@ func (f *Filesystem) Locate(relative string) (string, string, string) {
 // Returns the channel from the filesystem.
 //
 // Definition:
-//   Channel() (*Channel, error)
+//
+//	Channel() (*Channel, error)
 //
 // Error is handled by the callee.
 func (f *Filesystem) Channel() (*telegram.Channel, error) {
 	err := f.ActiveReconnect()
+	mtproto := f.MTProto()
 	if err != nil {
 		return nil, err
 	}
 
-	return api.GetChannel(f.mtproto, f.ChannelId)
+	return api.GetChannel(mtproto, f.ChannelId)
 }
 
 // Returns all the directories from the directory filesystem tree.
 //
 // Definition:
-//   Directory(query string) (*ForumTopicObj, error)
+//
+//	Directory(query string) (*ForumTopicObj, error)
 //
 // Parameters:
-//   query - The query to search for the directory. | File absolute path.
+//
+//	query - The query to search for the directory. | File absolute path.
 //
 // Error is handled by the callee.
 func (f *Filesystem) Directory(query string) (*telegram.ForumTopicObj, error) {
-	var dirTopic *telegram.ForumTopicObj = nil
+	err := f.ActiveReconnect()
+	mtproto := f.MTProto()
+	if err != nil {
+		return nil, err
+	}
 
 	channel, err := f.Channel()
 	if err != nil {
 		return nil, err
 	}
 
-	topics, err := api.GetTopics(f.mtproto, channel, query)
+	topics, err := api.GetTopics(mtproto, channel, query)
 	if err != nil {
 		return nil, err
 	}
 
+	var dirTopic *telegram.ForumTopicObj = nil
 	for _, topic := range topics {
 		if topic.Title == query {
 			dirTopic = topic
@@ -222,40 +162,54 @@ func (f *Filesystem) Directory(query string) (*telegram.ForumTopicObj, error) {
 // Returns all the directories from the directory filesystem tree.
 //
 // Definition:
-//   Directories() ([]*ForumTopicObj, error)
+//
+//	Directories() ([]*ForumTopicObj, error)
 //
 // Error is handled by the callee.
 func (f *Filesystem) Directories() ([]*telegram.ForumTopicObj, error) {
+	err := f.ActiveReconnect()
+	mtproto := f.MTProto()
+	if err != nil {
+		return nil, err
+	}
+
 	channel, err := f.Channel()
 	if err != nil {
 		return nil, err
 	}
 
-	return api.GetTopics(f.mtproto, channel, f.Root())
+	return api.GetTopics(mtproto, channel, f.Root())
 }
 
 // Returns the directories from the directory passed.
 //
 // Definition:
-//   DirectoriesFrom(topic *ForumTopicObj) ([]*ForumTopicObj, error)
+//
+//	DirectoriesFrom(topic *ForumTopicObj) ([]*ForumTopicObj, error)
 //
 // Parameters:
-//   topic - The topic to search for the objects. | Get it from Directory() method.
+//
+//	topic - The topic to search for the objects. | Get it from Directory() method.
 //
 // Error is handled by the callee.
 func (f *Filesystem) DirectoriesFrom(topic *telegram.ForumTopicObj) ([]*telegram.ForumTopicObj, error) {
-	var children []*telegram.ForumTopicObj = nil
+	err := f.ActiveReconnect()
+	mtproto := f.MTProto()
+	if err != nil {
+		return nil, err
+	}
 
 	channel, err := f.Channel()
 	if err != nil {
 		return nil, err
 	}
 
-	topics, err := api.GetTopics(f.mtproto, channel, topic.Title)
+	topics, err := api.GetTopics(mtproto, channel, topic.Title)
 	if err != nil {
 		return topics, err
 	}
 
+	var children []*telegram.ForumTopicObj = nil
 	for _, subtopic := range topics {
 		if path.Dir(subtopic.Title) == topic.Title {
 			children = append(children, subtopic)
@@ -268,10 +222,12 @@ func (f *Filesystem) DirectoriesFrom(topic *telegram.ForumTopicObj) ([]*telegram
 // Returns the objects in the directory passed.
 //
 // Definition:
-//   Objects(topic *ForumTopicObj) ([]*Object, int64, error)
+//
+//	Objects(topic *ForumTopicObj) ([]*Object, int64, error)
 //
 // Parameters:
-//   topic - The topic to search for the objects. | Get it from Directory() method.
+//
+//	topic - The topic to search for the objects. | Get it from Directory() method.
 //
 // Error is handled by the callee.
 func (f *Filesystem) Objects(topic *telegram.ForumTopicObj) ([]*Object, int64, error) {
@@ -279,7 +235,12 @@ func (f *Filesystem) Objects(topic *telegram.ForumTopicObj) ([]*Object, int64, e
 	var offset int32 = 0
 	var items int64 = 0
 
+	err := f.ActiveReconnect()
 	mtproto := f.MTProto()
+	if err != nil {
+		return objects, items, err
+	}
+
 	channel, err := f.Channel()
 	if err != nil {
 		return objects, items, err
@@ -325,17 +286,23 @@ func (f *Filesystem) Objects(topic *telegram.ForumTopicObj) ([]*Object, int64, e
 // Searches for an object in the filesystem.
 //
 // Definition:
-//   ObjectSearch(topic *ForumTopicObj, query string) (*Object, error)
+//
+//	ObjectSearch(topic *ForumTopicObj, query string) (*Object, error)
 //
 // Parameters:
-//   topic - The topic to search for the object. | Get it from Directory() method.
-//   query - The query to search for the object. | File absolute path.
+//
+//	topic - The topic to search for the object. | Get it from Directory() method.
+//	query - The query to search for the object. | File absolute path.
 //
 // Error is handled by the callee.
 func (f *Filesystem) ObjectSearch(topic *telegram.ForumTopicObj, query string) (*Object, error) {
-	var offset int32 = 0
-
+	err := f.ActiveReconnect()
 	mtproto := f.MTProto()
+	if err != nil {
+		return nil, err
+	}
+
+	var offset int32 = 0
 	channel, err := f.Channel()
 	if err != nil {
 		return nil, err
@@ -383,26 +350,9 @@ func (f *Filesystem) ObjectSearch(topic *telegram.ForumTopicObj, query string) (
 
 // ? ----- Interface fs.Info -----
 
-// Usage gets the quota information for the Fs.
-//
-// Used by Features() to return the space used.
-func (f *Filesystem) Usage(ctx context.Context) (*fs.Usage, error) {
-	return &fs.Usage{}, nil
-}
-
 // Features returns the optional features of this Fs.
 func (f *Filesystem) Features() *fs.Features {
-	return &fs.Features{
-		ServerSideAcrossConfigs: false,
-		CanHaveEmptyDirectories: false,
-		CaseInsensitive:         false,
-		DuplicateFiles:          false,
-		FilterAware:             true,
-		SlowModTime:             true,
-		SlowHash:                true,
-		Overlay:                 false,
-		About:                   f.Usage,
-	}
+	return NewTelegramFeatures(f)
 }
 
 // Name of the remote (as passed into NewFs).
@@ -419,7 +369,7 @@ func (f *Filesystem) Root() string {
 
 // Returns the supported hash types of the filesystem.
 func (f *Filesystem) Hashes() hash.Set {
-	return hash.Set(hash.SHA256)
+	return hash.Set(f.hash)
 }
 
 // String returns a description of the filesystem.
@@ -434,7 +384,7 @@ func (f *Filesystem) Precision() time.Duration {
 		return time.Second
 	}
 
-	return f.bot.Ping()
+	return f.Bot().Ping()
 }
 
 // ? ----- Interface fs.Fs : fs.Info methods -----
@@ -451,6 +401,23 @@ func (f *Filesystem) List(ctx context.Context, relative string) (entries fs.DirE
 	// ? Get the directory topic from filesystem.
 	topic, err := f.Directory(query)
 	if err != nil {
+		if relative == "" {
+			dir := path.Dir(query)
+			topic, err := f.Directory(dir)
+			if err != nil {
+				return nil, fs.ErrorDirNotFound
+			}
+
+			// ? Get the child directory topics from filesystem.
+			object, err := f.ObjectSearch(topic, query)
+			if err != nil {
+				return nil, fs.ErrorDirNotFound
+			}
+
+			entries = append(entries, object)
+			return entries, nil
+		}
+
 		return entries, fs.ErrorListAborted
 	}
 
@@ -647,5 +614,6 @@ func (f *Filesystem) Put(ctx context.Context, in io.Reader, src fs.ObjectInfo, o
 	log := fmt.Sprintf("Put: %s Size: %d ModTime: %v", src.Remote(), src.Size(), src.ModTime(ctx))
 	fs.LogPrint(fs.LogLevelInfo, log)
 
-	return nil, fs.ErrorNotImplemented
+	o := NewObjectFromRelative(f, src.Remote())
+	return &o, o.Update(ctx, in, src, options...)
 }

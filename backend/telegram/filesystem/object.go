@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
+	"github.com/rclone/rclone/backend/telegram/api"
 	"github.com/rclone/rclone/backend/telegram/types"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/hash"
@@ -25,7 +26,7 @@ type Object struct {
 
 // Creates a new object from a [telegram.MessageObj].
 //
-// * The object is created with the absolute path of the file.
+//	- The object is created with the absolute path of the file.
 //
 // [telegram.MessageObj]: https://pkg.go.dev/github.com/amarnathcjd/gogram/telegram#MessageObj
 func NewObject(filesystem *Filesystem, message *telegram.MessageObj) Object {
@@ -41,7 +42,7 @@ func NewObject(filesystem *Filesystem, message *telegram.MessageObj) Object {
 
 // Creates a new object from a relative path.
 //
-// * Commonly used to create a new object from [Fs.Put] method as no existing object is available.
+//	- Commonly used to create a new object from [Fs.Put] method as no existing object is available.
 //
 // [Fs.Put]: https://pkg.go.dev/github.com/rclone/rclone/fs#Fs.Put
 func NewObjectFromRelative(filesystem *Filesystem, relative string) Object {
@@ -61,6 +62,28 @@ func (o Object) Directory() string {
 // Returns the relative path of the object in the filesystem.
 func (o Object) DirectoryRelative() string {
 	return path.Dir(o.relative)
+}
+
+// Returns the channel from the filesystem as a bot.
+//
+// Definition:
+//
+//	BotChannel() (*Channel, error)
+//
+// Error is handled by the callee.
+func (o * Object) BotChannel() (*telegram.Channel, error) {
+	err := o.filesystem.ActiveReconnect()
+	bot := o.filesystem.Bot()
+	if err != nil {
+		return nil, err
+	}
+
+	channel, err := o.filesystem.Channel()
+	if err != nil {
+		return nil, err
+	}
+
+	return api.GetChannel(bot, channel.ID)
 }
 
 // ? ----- Interface fs.Object methods -----
@@ -123,6 +146,10 @@ func (o Object) Fs() fs.Info {
 // * The remote path is the path of the file relative to the root of the filesystem.
 func (o Object) Remote() string {
 	root := o.filesystem.Root()
+	if o.message.Message == root {
+		return path.Base(root)
+	}
+
 	trailRoot := TrailSlash(root)
 	return strings.TrimPrefix(o.absolute, trailRoot)
 }
