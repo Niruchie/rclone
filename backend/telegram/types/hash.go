@@ -72,9 +72,17 @@ func (t *TelegramMultipartHash) FromFileHash(hashes []*telegram.FileHash, server
 	sort.SliceStable(hashes, func(i, j int) bool {
 		return hashes[i].Offset < hashes[j].Offset
 	})
+	
+	// ? Remove duplicate offsets from the list.
+	unique := hashes[:0]
+	for i, hash := range hashes {
+		if i == 0 || hash.Offset != hashes[i-1].Offset {
+			unique = append(unique, hash)
+		}
+	}
 
 	// ? Convert the list into raw data.
-	data, err := json.Marshal(hashes)
+	data, err := json.Marshal(unique)
 	if err != nil {
 		return data
 	}

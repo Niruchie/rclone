@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
-	"github.com/rclone/rclone/backend/telegram/api"
-	"github.com/rclone/rclone/backend/telegram/types"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/hash"
 )
@@ -62,28 +60,6 @@ func (o Object) Directory() string {
 // Returns the relative path of the object in the filesystem.
 func (o Object) DirectoryRelative() string {
 	return path.Dir(o.relative)
-}
-
-// Returns the channel from the filesystem as a bot.
-//
-// Definition:
-//
-//	BotChannel() (*Channel, error)
-//
-// Error is handled by the callee.
-func (o * Object) BotChannel() (*telegram.Channel, error) {
-	err := o.filesystem.ActiveReconnect()
-	bot := o.filesystem.Bot()
-	if err != nil {
-		return nil, err
-	}
-
-	channel, err := o.filesystem.Channel()
-	if err != nil {
-		return nil, err
-	}
-
-	return api.GetChannel(bot, channel.ID)
 }
 
 // ? ----- Interface fs.Object methods -----
@@ -178,5 +154,5 @@ func (o Object) ModTime(ctx context.Context) time.Time {
 //
 // * The max size of the file is 2<<30 bytes = 2GB on this remote.
 func (o Object) Size() int64 {
-	return types.MaxObjectSizeAccepted
+	return o.filesystem.MaxObjectSizeAccepted
 }
