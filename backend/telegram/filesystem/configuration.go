@@ -130,7 +130,7 @@ func selectChannelWithBot(ctx context.Context, m *configmap.Mapper) (*fs.ConfigO
 		if dialog, ok := single.(*telegram.DialogObj); ok {
 			if dialog.Peer == nil {
 				log := fmt.Sprintf("The following dialog has a nil peer: %v", dialog)
-				fs.LogPrint(fs.LogLevelError, log)
+				fs.Error(types.LoggerString(dialog), log)
 				continue
 			}
 
@@ -138,7 +138,7 @@ func selectChannelWithBot(ctx context.Context, m *configmap.Mapper) (*fs.ConfigO
 				peer, err := mtproto.ResolvePeer(next.ChannelID)
 				if err != nil {
 					log := fmt.Sprintf("Error resolving peer: %v", err)
-					fs.LogPrint(fs.LogLevelError, log)
+					fs.Error(types.LoggerString(next), log)
 					continue
 				}
 
@@ -153,7 +153,7 @@ func selectChannelWithBot(ctx context.Context, m *configmap.Mapper) (*fs.ConfigO
 
 					if err != nil {
 						log := fmt.Sprintf("Error getting full channel: %v", err)
-						fs.LogPrint(fs.LogLevelError, log)
+						fs.Error(types.LoggerString(channelPeer), log)
 						continue
 					}
 

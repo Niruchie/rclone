@@ -56,7 +56,7 @@ func Fs(ctx context.Context, name string, root string, m configmap.Mapper) (fs.F
 	}
 
 	log = fmt.Sprintf("Telegram MTProto API working with: %s", me.Username)
-	fs.LogPrint(fs.LogLevelInfo, log)
+	fs.Infoc(types.LoggerString(me.Username), log)
 
 	me, err = bot.GetMe()
 	if err != nil {
@@ -64,7 +64,7 @@ func Fs(ctx context.Context, name string, root string, m configmap.Mapper) (fs.F
 	}
 
 	log = fmt.Sprintf("Telegram Bot API working with: %s", me.Username)
-	fs.LogPrint(fs.LogLevelInfo, log)
+	fs.Infoc(types.LoggerString(me.Username), log)
 
 	// ? Set up Filesystem instance
 	f.hash = registeredType
@@ -95,7 +95,7 @@ func (f *Filesystem) Locate(relative string) (string, string, string) {
 	query := UntrailSlash(absolute)
 
 	log := fmt.Sprintf("Locate query for entry -> Absolute: %s, Relative: %s, Query: %s", absolute, relative, query)
-	fs.LogPrint(fs.LogLevelDebug, log)
+	fs.Debug(types.LoggerString(relative), log)
 
 	return root, relative, query
 }
@@ -188,7 +188,7 @@ func (f *Filesystem) Objects(ctx context.Context, topic *telegram.ForumTopicObj)
 
 	for {
 		log := fmt.Sprintf("Searching for objects (as Telegram Messages) on topic: %s, topicId: %d, offset: %d", topic.Title, topic.ID, offset)
-		fs.LogPrint(fs.LogLevelDebug, log)
+		fs.Debug(types.LoggerString(topic), log)
 
 		messages, amount, incomplete, next, err := f.SearchMessagesTopic(ctx, topic, topic.Title, offset)
 		if err != nil {
@@ -201,7 +201,7 @@ func (f *Filesystem) Objects(ctx context.Context, topic *telegram.ForumTopicObj)
 			case *telegram.MessageObj:
 				if path.Dir(found.Message) == topic.Title {
 					log := fmt.Sprintf("Object found (as Telegram Message): %s, offset: %d, id: %d", found.Message, offset, found.ID)
-					fs.LogPrint(fs.LogLevelDebug, log)
+					fs.Debug(types.LoggerString(found), log)
 					object := NewObject(f, found)
 					objects = append(objects, &object)
 					continue
@@ -240,7 +240,7 @@ func (f *Filesystem) ObjectSearch(ctx context.Context, topic *telegram.ForumTopi
 
 	for {
 		log := fmt.Sprintf("Searching for object (as Telegram Message): %s, topic: %s, topicId: %d, offset: %d", query, topic.Title, topic.ID, offset)
-		fs.LogPrint(fs.LogLevelDebug, log)
+		fs.Debug(types.LoggerString(topic), log)
 
 		messages, _, incomplete, next, err := f.SearchMessagesTopic(ctx, topic, query, offset)
 		if err != nil {
@@ -252,7 +252,7 @@ func (f *Filesystem) ObjectSearch(ctx context.Context, topic *telegram.ForumTopi
 			case *telegram.MessageObj:
 				if found.Message == query {
 					log := fmt.Sprintf("Object found (as Telegram Message): %s, offset: %d, id: %d", query, offset, found.ID)
-					fs.LogPrint(fs.LogLevelDebug, log)
+					fs.Debug(types.LoggerString(found), log)
 					object := NewObject(f, found)
 					return &object, nil
 				}
@@ -262,7 +262,7 @@ func (f *Filesystem) ObjectSearch(ctx context.Context, topic *telegram.ForumTopi
 			case *telegram.MessageService:
 			default:
 				log := fmt.Sprintf("Ignoring object (as Telegram Message): %s, offset: %d, type: %T", query, offset, found)
-				fs.LogPrint(fs.LogLevelDebug, log)
+				fs.Debug(types.LoggerString(found), log)
 				continue
 			}
 		}
@@ -273,7 +273,7 @@ func (f *Filesystem) ObjectSearch(ctx context.Context, topic *telegram.ForumTopi
 		}
 
 		log = fmt.Sprintf("Object not found (as Telegram Message): %s", query)
-		fs.LogPrint(fs.LogLevelDebug, log)
+		fs.Debug(types.LoggerString(topic), log)
 		return nil, fs.ErrorObjectNotFound
 	}
 }
@@ -368,7 +368,7 @@ func (f *Filesystem) List(ctx context.Context, relative string) (entries fs.DirE
 		// !!! Error handling for the objects in the folder.
 		if err != nil {
 			log := fmt.Sprintf("Error getting objects from folder (on Telegram Topic): %s, %s", query, err.Error())
-			fs.LogPrint(fs.LogLevelError, log)
+			fs.Error(types.LoggerString(subtopic), log)
 		}
 
 		name := strings.TrimPrefix(subtopic.Title, trailRoot)
@@ -408,25 +408,25 @@ func (f *Filesystem) Mkdir(ctx context.Context, relative string) error {
 
 	// ? Create the topic on the channel.
 	log := fmt.Sprintf("Creating folder (as a Telegram Topic): %s", query)
-	fs.LogPrint(fs.LogLevelDebug, log)
+	fs.Infoc(types.LoggerString(query), log)
 
 	_, created, err := f.CreateTopic(ctx, query)
 	if err == nil && !created {
 
 		log := fmt.Sprintf("Folder already exists (as a Telegram Topic): %s", query)
-		fs.LogPrint(fs.LogLevelInfo, log)
+		fs.Infoc(types.LoggerString(query), log)
 		return nil
 
 	} else if err == nil {
 
 		log := fmt.Sprintf("Folder created (as a Telegram Topic): %s", query)
-		fs.LogPrint(fs.LogLevelInfo, log)
+		fs.Infoc(types.LoggerString(query), log)
 		return nil
 
 	} else {
 
 		log := fmt.Sprintf("Error creating folder (as a Telegram Topic): %s, %s", query, err.Error())
-		fs.LogPrint(fs.LogLevelError, log)
+		fs.Error(types.LoggerString(query), log)
 		return fs.ErrorDirNotFound
 
 	}
@@ -452,7 +452,7 @@ func (f *Filesystem) Rmdir(ctx context.Context, relative string) error {
 
 	if len(children) > 0 {
 		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, folder is not empty", query)
-		fs.LogPrint(fs.LogLevelError, log)
+		fs.Error(types.LoggerString(topic), log)
 		return fs.ErrorDirectoryNotEmpty
 	}
 
@@ -465,7 +465,7 @@ func (f *Filesystem) Rmdir(ctx context.Context, relative string) error {
 
 	if items > 0 {
 		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, folder is not empty", query)
-		fs.LogPrint(fs.LogLevelError, log)
+		fs.Error(types.LoggerString(topic), log)
 		return fs.ErrorDirectoryNotEmpty
 	}
 
@@ -473,7 +473,7 @@ func (f *Filesystem) Rmdir(ctx context.Context, relative string) error {
 	err = f.DeleteTopic(ctx, topic)
 	if err != nil {
 		log := fmt.Sprintf("Error deleting folder (as Telegram Topic): %s, %s", query, err.Error())
-		fs.LogPrint(fs.LogLevelError, log)
+		fs.Error(types.LoggerString(topic), log)
 		return fs.ErrorNotDeletingDirs
 	}
 
@@ -522,7 +522,7 @@ func (f *Filesystem) NewObject(ctx context.Context, relative string) (fs.Object,
 // [Fs.Put]: https://pkg.go.dev/github.com/rclone/rclone/fs#Fs.Put
 func (f *Filesystem) Put(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (fs.Object, error) {
 	log := fmt.Sprintf("Put: %s Size: %d ModTime: %v", src.Remote(), src.Size(), src.ModTime(ctx))
-	fs.LogPrint(fs.LogLevelInfo, log)
+	fs.Infoc(types.LoggerString(src.Remote()), log)
 
 	o := NewObjectFromRelative(f, src.Remote())
 	return &o, o.Update(ctx, in, src, options...)

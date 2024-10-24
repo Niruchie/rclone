@@ -40,7 +40,7 @@ func (tc *TelegramClient) CreateTopic(ctx context.Context, title string) (*teleg
 	// ? Create the topic if it does not exist.
 	var topic *telegram.ForumTopicObj = nil
 
-	err = tc.pacer.Call(func() (bool, error) {
+	err = tc.Pacer().Call(func() (bool, error) {
 		mtproto, err := tc.MTProto()
 		if err != nil {
 			return false, err
@@ -62,8 +62,8 @@ func (tc *TelegramClient) CreateTopic(ctx context.Context, title string) (*teleg
 
 		if cause, ok := errors.Cause(err).(*gogram.ErrResponseCode); ok {
 			// ? Check if the error is a flood wait.
-			if cause.Code == 420 {
-				fs.LogPrint(fs.LogLevelWarning, err.Error())
+			if cause.Code == types.StatusTelegramFloodWait {
+				fs.Infoc(types.LoggerString(cause), cause.Error())
 				return true, cause
 			}
 		}
@@ -118,7 +118,7 @@ func (tc *TelegramClient) GetChannel(ctx context.Context) (*telegram.Channel, er
 	cache, err := tc.channels.Get("mtproto", func(key string) (interface{}, bool, error) {
 		var channel *telegram.Channel = nil
 
-		err := tc.pacer.Call(func() (bool, error) {
+		err := tc.Pacer().Call(func() (bool, error) {
 			mtproto, err := tc.MTProto()
 			if err != nil {
 				return false, err
@@ -132,8 +132,8 @@ func (tc *TelegramClient) GetChannel(ctx context.Context) (*telegram.Channel, er
 
 			if cause, ok := errors.Cause(err).(*gogram.ErrResponseCode); ok {
 				// ? Check if the error is a flood wait.
-				if cause.Code == 420 {
-					fs.LogPrint(fs.LogLevelWarning, err.Error())
+				if cause.Code == types.StatusTelegramFloodWait {
+					fs.Infoc(types.LoggerString(cause), cause.Error())
 					return true, cause
 				}
 			}
@@ -166,7 +166,7 @@ func (tc *TelegramClient) GetTopics(ctx context.Context, search string) ([]*tele
 	topics, err := tc.topics.Get(search, func(key string) (interface{}, bool, error) {
 		var topics []*telegram.ForumTopicObj = nil
 
-		err := tc.pacer.Call(func() (bool, error) {
+		err := tc.Pacer().Call(func() (bool, error) {
 			mtproto, err := tc.MTProto()
 			if err != nil {
 				return false, err
@@ -188,8 +188,8 @@ func (tc *TelegramClient) GetTopics(ctx context.Context, search string) ([]*tele
 
 			if cause, ok := errors.Cause(err).(*gogram.ErrResponseCode); ok {
 				// ? Check if the error is a flood wait.
-				if cause.Code == 420 {
-					fs.LogPrint(fs.LogLevelWarning, err.Error())
+				if cause.Code == types.StatusTelegramFloodWait {
+					fs.Infoc(types.LoggerString(cause), cause.Error())
 					return true, cause
 				}
 			}
@@ -222,7 +222,7 @@ func (tc *TelegramClient) SearchMessagesTopic(ctx context.Context, topic *telegr
 
 	var response SearchMessagesTopicReturn
 
-	err := tc.pacer.Call(func() (bool, error) {
+	err := tc.Pacer().Call(func() (bool, error) {
 		mtproto, err := tc.MTProto()
 		if err != nil {
 			return false, err
@@ -247,8 +247,8 @@ func (tc *TelegramClient) SearchMessagesTopic(ctx context.Context, topic *telegr
 
 		if cause, ok := errors.Cause(err).(*gogram.ErrResponseCode); ok {
 			// ? Check if the error is a flood wait.
-			if cause.Code == 420 {
-				fs.LogPrint(fs.LogLevelWarning, err.Error())
+			if cause.Code == types.StatusTelegramFloodWait {
+				fs.Infoc(types.LoggerString(cause), cause.Error())
 				return true, cause
 			}
 		}
@@ -332,7 +332,7 @@ func (tc *TelegramClient) DeleteTopic(ctx context.Context, topic *telegram.Forum
 		return types.ErrUnsupportedOperation
 	}
 
-	err = tc.pacer.Call(func() (bool, error) {
+	err = tc.Pacer().Call(func() (bool, error) {
 		mtproto, err := tc.MTProto()
 		if err != nil {
 			return false, err
@@ -350,8 +350,8 @@ func (tc *TelegramClient) DeleteTopic(ctx context.Context, topic *telegram.Forum
 
 		if cause, ok := errors.Cause(err).(*gogram.ErrResponseCode); ok {
 			// ? Check if the error is a flood wait.
-			if cause.Code == 420 {
-				fs.LogPrint(fs.LogLevelWarning, err.Error())
+			if cause.Code == types.StatusTelegramFloodWait {
+				fs.Infoc(types.LoggerString(cause), cause.Error())
 				return true, cause
 			}
 		}
