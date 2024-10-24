@@ -27,17 +27,24 @@ type Options struct {
 // Constants to be used in the backend.
 var (
 	// The root topic ID for the filesystem.
-	//	- The root topic ID is the first topic created.
-	//	- The root topic ID must not be deleted.
-	//	- The root topic ID is 1.
+	//  - The root topic ID is the first topic created.
+	//  - The root topic ID must not be deleted.
+	//  - The root topic ID is 1.
 	ChannelRootTopicId int32 = 1
 
 	// Session to use when login is performed.
 	// Also used to login to Telegram Bot API.
-	//
-	//	- Generated after rclone configuration.
-	//	- An empty string for the session.
+	//  - Generated after rclone configuration.
+	//  - An empty string for the session.
 	SessionStringEmpty string = ""
+
+	// [Telegram API | Flood Wait] HTTP Status Code for RPC errors.
+	//  - These [Telegram API | Transport Errors] are known to be
+	//  - Telegram API returns 420 when the request is throttled.
+	//
+	// [Telegram API | Flood Wait]: https://core.telegram.org/api/errors
+	// [Telegram API | Transport Errors]: https://core.telegram.org/mtproto/mtproto-transports#transport-errors
+	StatusTelegramFloodWait int64 = 420
 
 	// When using Streamed Uploads, use unknown size of document to upload.
 	// This forces the backend to use the `upload.saveBigFilePart` method.
@@ -52,9 +59,9 @@ var (
 	StreamedUploadUnknownSize int32 = -1
 
 	// The maximum object size accepted by the backend.
-	//   - Default is 2 GiB as we are using MTProto.
-	//   - [Local server] lets upload 2 GiB files.
-	//   - Files are uploaded with bots.
+	//  - Default is 2 GiB as we are using MTProto.
+	//  - [Local server] lets upload 2 GiB files.
+	//  - Files are uploaded with bots.
 	//
 	// [Local server]: https://core.telegram.org/bots/api#using-a-local-bot-api-server
 	MaxObjectSizeAccepted int64 = 2 << 30
@@ -134,7 +141,7 @@ var (
 			Provider: "telegram",
 			Required: true,
 			Advanced: true,
-			Default:  50,
+			Default:  10,
 		},
 
 		{

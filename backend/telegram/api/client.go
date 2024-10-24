@@ -32,12 +32,12 @@ type TelegramClient struct {
 //
 // Definition:
 //
-//	DecodePublicKeys() ([]*rsa.PublicKey, error)
+//  DecodePublicKeys() ([]*rsa.PublicKey, error)
 //
 // Returns:
 //
-//	[]*rsa.PublicKey - The decoded public key.
-//	error - If an error occurs while decoding the public key.
+//  []*rsa.PublicKey - The decoded public key.
+//  error - If an error occurs while decoding the public key.
 //
 // [Telegram Apps]: https://core.telegram.org/apps
 func (tc *TelegramClient) DecodePublicKeys() ([]*rsa.PublicKey, error) {
@@ -61,16 +61,16 @@ func (tc *TelegramClient) DecodePublicKeys() ([]*rsa.PublicKey, error) {
 //
 // Definition:
 //
-//	ConnectMTProto(openSession bool) (*telegram.Client, error)
+//  ConnectMTProto(openSession bool) (*telegram.Client, error)
 //
 // Parameters:
 //
-//	openSession bool - Whether the session should open with SessionString.
+//  openSession bool - Whether the session should open with SessionString.
 //
 // Returns:
 //
-//	*telegram.Client - The Telegram MTProto API client.
-//	error - If an error occurs while connecting to the Telegram MTProto API.
+//  *telegram.Client - The Telegram MTProto API client.
+//  error - If an error occurs while connecting to the Telegram MTProto API.
 //
 // [Telegram MTProto API]: https://core.telegram.org/mtproto
 // [MTProto API Methods]: https://core.telegram.org/methods
@@ -106,14 +106,14 @@ func (tc *TelegramClient) ConnectMTProto(openSession bool) (*telegram.Client, er
 	})
 
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, types.ErrInvalidClient
 	}
 
 	// ? Connect the client to the Telegram MTProto API.
 	err = client.Connect()
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, types.ErrInvalidClientCouldNotConnect
 	}
 
@@ -124,26 +124,26 @@ func (tc *TelegramClient) ConnectMTProto(openSession bool) (*telegram.Client, er
 //
 // Definition:
 //
-//	ConnectBot() (*telegram.Client, error)
+//  ConnectBot() (*telegram.Client, error)
 //
 // Returns:
 //
-//	*telegram.Client - The Telegram Bot API client.
-//	error - If an error occurs while connecting to the Telegram Bot API.
+//  *telegram.Client - The Telegram Bot API client.
+//  error - If an error occurs while connecting to the Telegram Bot API.
 //
 // [Telegram Bot API]: https://core.telegram.org/bots/api
 func (tc *TelegramClient) ConnectBot() (*telegram.Client, error) {
 	// ? Get an MTProto client with empty string session.
 	client, err := tc.ConnectMTProto(false)
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, err
 	}
 
 	// ? Connect the client to the Telegram Bot API.
 	err = client.LoginBot(tc.BotToken)
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, types.ErrInvalidClientCouldNotConnectBot
 	}
 
@@ -155,16 +155,16 @@ func (tc *TelegramClient) ConnectBot() (*telegram.Client, error) {
 //
 // Definition:
 //
-//	ActiveReconnect() error
+//  ActiveReconnect() error
 //
 // Returns:
 //
-//	error - If an error occurs while reconnecting.
+//  error - If an error occurs while reconnecting.
 func (tc *TelegramClient) ActiveReconnect() error {
 	if !tc.mtproto.TcpActive() {
 		err := tc.mtproto.Reconnect(true)
 		if err != nil {
-			fs.LogPrint(fs.LogLevelError, err.Error())
+			fs.Error(types.LoggerString(tc.mtproto), err.Error())
 			return err
 		}
 	}
@@ -179,7 +179,7 @@ func (tc *TelegramClient) ActiveReconnect() error {
 		if !tc.bot.TcpActive() {
 			err := tc.bot.Reconnect(true)
 			if err != nil {
-				fs.LogPrint(fs.LogLevelError, err.Error())
+				fs.Error(types.LoggerString(tc.bot), err.Error())
 				return err
 			}
 		}
@@ -196,13 +196,13 @@ func (tc *TelegramClient) ActiveReconnect() error {
 //
 // Definition:
 //
-//	Connect(ctx context.Context) (*telegram.Client, *telegram.Client, error)
+//  Connect(ctx context.Context) (*telegram.Client, *telegram.Client, error)
 //
 // Returns:
 //
-//	*telegram.Client - The Telegram MTProto API client.
-//	*telegram.Client - The Telegram Bot API client.
-//	error - If an error occurs while connecting to the Telegram API.
+//  *telegram.Client - The Telegram MTProto API client.
+//  *telegram.Client - The Telegram Bot API client.
+//  error - If an error occurs while connecting to the Telegram API.
 //
 // [fs.pacer]: https://pkg.go.dev/github.com/rclone/rclone/lib/pacer
 // [Flood Wait]: https://core.telegram.org/api/errors#420-flood
@@ -226,12 +226,12 @@ func (tc *TelegramClient) Connect(ctx context.Context) (*telegram.Client, *teleg
 
 	switch tc.TestServer {
 	case true:
-		fs.LogPrint(fs.LogLevelDebug, "Connecting to the test server, might take a while more than usual.")
-		fs.LogPrint(fs.LogLevelDebug, "Simulating the bot with the MTProto.")
+		fs.Log(types.LoggerString(tc.mtproto), "Connecting to the test server, might take a while more than usual.")
+		fs.Log(types.LoggerString(tc.mtproto), "Simulating the bot with the MTProto.")
 
 		mtproto, err = tc.ConnectMTProto(true)
 		if err != nil {
-			fs.LogPrint(fs.LogLevelError, err.Error())
+			fs.Error(types.LoggerString(tc.mtproto), err.Error())
 			return nil, nil, err
 		}
 
@@ -239,13 +239,13 @@ func (tc *TelegramClient) Connect(ctx context.Context) (*telegram.Client, *teleg
 	default:
 		mtproto, err = tc.ConnectMTProto(true)
 		if err != nil {
-			fs.LogPrint(fs.LogLevelError, err.Error())
+			fs.Error(types.LoggerString(tc.mtproto), err.Error())
 			return nil, nil, err
 		}
 
 		bot, err = tc.ConnectBot()
 		if err != nil {
-			fs.LogPrint(fs.LogLevelError, err.Error())
+			fs.Error(types.LoggerString(tc.bot), err.Error())
 			return nil, nil, err
 		}
 	}
@@ -259,7 +259,7 @@ func (tc *TelegramClient) Connect(ctx context.Context) (*telegram.Client, *teleg
 //
 // Definition:
 //
-//	Disconnect()
+//  Disconnect()
 //
 // The client would disconnect from the Telegram MTProto and Bot API.
 func (tc *TelegramClient) Disconnect() {
@@ -271,14 +271,14 @@ func (tc *TelegramClient) Disconnect() {
 func (tc *TelegramClient) Authorize() (*TelegramClient, error) {
 	mtproto, err := tc.ConnectMTProto(false)
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, err
 	}
 
 	// ? Sign in with the code.
 	_, err = mtproto.Login(tc.PhoneNumber, &telegram.LoginOptions{})
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(mtproto), err.Error())
 		return nil, err
 	}
 
@@ -291,32 +291,43 @@ func (tc *TelegramClient) Authorize() (*TelegramClient, error) {
 //
 // Definition:
 //
-//	MTProto() *telegram.Client
+//  MTProto() *telegram.Client
 //
 // The MTProto would try to reconnect if it's not active.
 // If an error occurs while reconnecting, it returns nil.
 func (tc *TelegramClient) MTProto() (*telegram.Client, error) {
 	err := tc.ActiveReconnect()
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, err
 	}
 
 	return tc.mtproto, nil
 }
 
+// Returns the pacer instance from the filesystem.
+//
+// Definition:
+//
+//  Pacer() *fs.Pacer
+//
+// The pacer is used to avoid rate limiting from data centers.
+func (tc *TelegramClient) Pacer() *fs.Pacer {
+	return tc.pacer
+}
+
 // Returns the Telegram Bot instance from the filesystem.
 //
 // Definition:
 //
-//	Bot() *telegram.Client
+//  Bot() *telegram.Client
 //
 // The bot would try to reconnect if it's not active.
 // If an error occurs while reconnecting, it returns nil.
 func (tc *TelegramClient) Bot() (*telegram.Client, error) {
 	err := tc.ActiveReconnect()
 	if err != nil {
-		fs.LogPrint(fs.LogLevelError, err.Error())
+		fs.Error(types.LoggerString(tc), err.Error())
 		return nil, err
 	}
 
