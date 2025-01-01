@@ -20,11 +20,11 @@ import (
 type TelegramClient struct {
 	lockDirectories sync.Mutex
 	lockFiles       sync.Mutex
-	mtproto  *telegram.Client
-	bot      *telegram.Client
-	channels *cache.Cache
-	topics   *cache.Cache
-	pacer    *fs.Pacer
+	mtproto         *telegram.Client
+	bot             *telegram.Client
+	channels        *cache.Cache
+	topics          *cache.Cache
+	pacer           *fs.Pacer
 	types.Options
 }
 
@@ -32,12 +32,12 @@ type TelegramClient struct {
 //
 // Definition:
 //
-//  DecodePublicKeys() ([]*rsa.PublicKey, error)
+//	DecodePublicKeys() ([]*rsa.PublicKey, error)
 //
 // Returns:
 //
-//  []*rsa.PublicKey - The decoded public key.
-//  error - If an error occurs while decoding the public key.
+//	[]*rsa.PublicKey - The decoded public key.
+//	error - If an error occurs while decoding the public key.
 //
 // [Telegram Apps]: https://core.telegram.org/apps
 func (tc *TelegramClient) DecodePublicKeys() ([]*rsa.PublicKey, error) {
@@ -61,16 +61,16 @@ func (tc *TelegramClient) DecodePublicKeys() ([]*rsa.PublicKey, error) {
 //
 // Definition:
 //
-//  ConnectMTProto(openSession bool) (*telegram.Client, error)
+//	ConnectMTProto(openSession bool) (*telegram.Client, error)
 //
 // Parameters:
 //
-//  openSession bool - Whether the session should open with SessionString.
+//	openSession bool - Whether the session should open with SessionString.
 //
 // Returns:
 //
-//  *telegram.Client - The Telegram MTProto API client.
-//  error - If an error occurs while connecting to the Telegram MTProto API.
+//	*telegram.Client - The Telegram MTProto API client.
+//	error - If an error occurs while connecting to the Telegram MTProto API.
 //
 // [Telegram MTProto API]: https://core.telegram.org/mtproto
 // [MTProto API Methods]: https://core.telegram.org/methods
@@ -92,12 +92,12 @@ func (tc *TelegramClient) ConnectMTProto(openSession bool) (*telegram.Client, er
 			DeviceModel:   fmt.Sprintf("rclone %s %s", fs.VersionTag, fs.VersionSuffix),
 			SystemVersion: fs.VersionSuffix,
 			AppVersion:    fs.VersionTag,
+			LangCode:      "en",
 		},
 		LogLevel:      telegram.LogError,
 		TestMode:      tc.TestServer,
 		MemorySession: true,
 		DisableCache:  true,
-		LangCode:      "en",
 
 		AppHash:       tc.AppHash,
 		AppID:         tc.AppId,
@@ -124,12 +124,12 @@ func (tc *TelegramClient) ConnectMTProto(openSession bool) (*telegram.Client, er
 //
 // Definition:
 //
-//  ConnectBot() (*telegram.Client, error)
+//	ConnectBot() (*telegram.Client, error)
 //
 // Returns:
 //
-//  *telegram.Client - The Telegram Bot API client.
-//  error - If an error occurs while connecting to the Telegram Bot API.
+//	*telegram.Client - The Telegram Bot API client.
+//	error - If an error occurs while connecting to the Telegram Bot API.
 //
 // [Telegram Bot API]: https://core.telegram.org/bots/api
 func (tc *TelegramClient) ConnectBot() (*telegram.Client, error) {
@@ -155,11 +155,11 @@ func (tc *TelegramClient) ConnectBot() (*telegram.Client, error) {
 //
 // Definition:
 //
-//  ActiveReconnect() error
+//	ActiveReconnect() error
 //
 // Returns:
 //
-//  error - If an error occurs while reconnecting.
+//	error - If an error occurs while reconnecting.
 func (tc *TelegramClient) ActiveReconnect() error {
 	if !tc.mtproto.TcpActive() {
 		err := tc.mtproto.Reconnect(true)
@@ -196,13 +196,13 @@ func (tc *TelegramClient) ActiveReconnect() error {
 //
 // Definition:
 //
-//  Connect(ctx context.Context) (*telegram.Client, *telegram.Client, error)
+//	Connect(ctx context.Context) (*telegram.Client, *telegram.Client, error)
 //
 // Returns:
 //
-//  *telegram.Client - The Telegram MTProto API client.
-//  *telegram.Client - The Telegram Bot API client.
-//  error - If an error occurs while connecting to the Telegram API.
+//	*telegram.Client - The Telegram MTProto API client.
+//	*telegram.Client - The Telegram Bot API client.
+//	error - If an error occurs while connecting to the Telegram API.
 //
 // [fs.pacer]: https://pkg.go.dev/github.com/rclone/rclone/lib/pacer
 // [Flood Wait]: https://core.telegram.org/api/errors#420-flood
@@ -259,7 +259,7 @@ func (tc *TelegramClient) Connect(ctx context.Context) (*telegram.Client, *teleg
 //
 // Definition:
 //
-//  Disconnect()
+//	Disconnect()
 //
 // The client would disconnect from the Telegram MTProto and Bot API.
 func (tc *TelegramClient) Disconnect() {
@@ -291,7 +291,7 @@ func (tc *TelegramClient) Authorize() (*TelegramClient, error) {
 //
 // Definition:
 //
-//  MTProto() *telegram.Client
+//	MTProto() *telegram.Client
 //
 // The MTProto would try to reconnect if it's not active.
 // If an error occurs while reconnecting, it returns nil.
@@ -309,7 +309,7 @@ func (tc *TelegramClient) MTProto() (*telegram.Client, error) {
 //
 // Definition:
 //
-//  Pacer() *fs.Pacer
+//	Pacer() *fs.Pacer
 //
 // The pacer is used to avoid rate limiting from data centers.
 func (tc *TelegramClient) Pacer() *fs.Pacer {
@@ -320,7 +320,7 @@ func (tc *TelegramClient) Pacer() *fs.Pacer {
 //
 // Definition:
 //
-//  Bot() *telegram.Client
+//	Bot() *telegram.Client
 //
 // The bot would try to reconnect if it's not active.
 // If an error occurs while reconnecting, it returns nil.
