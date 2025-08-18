@@ -96,6 +96,8 @@ github.com/abbot/go-http-auth v0.4.0 h1:QjmvZ5gSC7jm3Zg54DqWE/T5m1t2AfDu6QlXJT0E
 github.com/abbot/go-http-auth v0.4.0/go.mod h1:Cz6ARTIzApMJDzh5bRMSUou6UMSp0IEXg9km/ci7TJM=
 github.com/akavel/rsrc v0.10.2 h1:Zxm8V5eI1hW4gGaYsJQUhxpjkENuG91ki8B4zCrvEsw=
 github.com/akavel/rsrc v0.10.2/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
+github.com/amarnathcjd/gogram v1.6.2 h1:B6iV4HzdfXSWXG/+t3DGy0mpew+/ewuUhAuqjDk1WlU=
+github.com/amarnathcjd/gogram v1.6.2/go.mod h1:vZURSYiNYNPnZ70msOgmRmcVuku1P6ol2zIAHMM1CFY=
 github.com/anacrolix/dms v1.7.2 h1:JAAJJIlXp+jT2yEah1EbR1AFpGALHL238uSKFXec2qw=
 github.com/anacrolix/dms v1.7.2/go.mod h1:excFJW5MKBhn5yt5ZMyeE9iFVqnO6tEGQl7YG/2tUoQ=
 github.com/anacrolix/generics v0.0.3 h1:wMkQgQzq0obSy1tMkxDu7Ife7PsegOBWHDRaSW31EnM=
