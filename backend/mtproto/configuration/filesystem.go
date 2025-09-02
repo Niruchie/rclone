@@ -8,9 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amarnathcjd/gogram/telegram"
 	"github.com/rclone/rclone/backend/mtproto/configuration/hashing"
-	"github.com/rclone/rclone/backend/mtproto/configuration/logging"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
 	"github.com/rclone/rclone/fs/config/configstruct"
@@ -57,16 +55,6 @@ func Fs(ctx context.Context, name string, root string, m configmap.Mapper) (fs.F
 	size := hashing.NewTelegramMultipartHasher().Size()
 	registeredType := hash.RegisterHash("telegramhashmulti", "TelegramMultipartHash", size, hashing.NewTelegramMultipartHasher)
 
-	// ? Debugging the MTProto API connections
-	client, err := f.Client()
-	if err != nil {
-		return nil, err
-	}
-
-	client.On(telegram.OnRaw, func(m telegram.Update, c *telegram.Client) error {
-		fs.Debugf(logging.LoggerString(c), "Received raw update: %v", m)
-		return nil
-	})
 
 	managers := []ManagerWithLock{}
 	// ? Register the filesystem managers

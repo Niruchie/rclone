@@ -18,25 +18,32 @@ import (
 
 // MTProtoService with all its properties.
 type MTProtoService struct {
+	datacenter      *telegram.NearestDc
 	client          *telegram.Client
+	config          *telegram.Config
+	appConfig       *telegram.HelpAppConfigObj
 	channels        *cache.Cache
+	pacer           *pacer.Pacer
 	lockDirectories sync.Mutex
-	pacer           *fs.Pacer
 	options.Options
 }
 
 // NewMTProtoService creates a new MTProtoService instance.
 func NewMTProtoService(ctx context.Context) *MTProtoService {
+	pacer := pacer.New()
+	
 	service := &MTProtoService{
+		appConfig:       &telegram.HelpAppConfigObj{},
+		config:          &telegram.Config{},
 		lockDirectories: sync.Mutex{},
-		pacer:           fs.NewPacer(ctx, pacer.NewDefault()),
 		channels:        cache.New(),
+		pacer:           pacer,
 		client:          nil,
 	}
 
-	service.pacer.SetMaxConnections(service.MaxConnections)
-	service.pacer.SetRetries(service.MaxRetries)
-
+	// TODO: The values for pacer are set to 0x00.
+	pacer.SetMaxConnections(service.MaxConnections)
+	pacer.SetRetries(service.MaxRetries)
 	return service
 }
 
@@ -122,7 +129,7 @@ func (mtproto *MTProtoService) ServiceConnect(openSession bool) (*telegram.Clien
 		return nil, logging.ErrInvalidClient
 	}
 
-	// ? Connect the client to the Telegram MTProto API.
+	// Connect the client to the MTProto API.
 	err = client.Connect()
 	if err != nil {
 		fs.Error(logging.LoggerString(mtproto), err.Error())
@@ -133,10 +140,6 @@ func (mtproto *MTProtoService) ServiceConnect(openSession bool) (*telegram.Clien
 }
 
 // Authorize the MTProto API client with the found credential options.
-//
-// Definition:
-//
-//	Authorize() (*MTProtoService, error)
 //
 // Returns:
 //
@@ -173,24 +176,67 @@ func (mtproto *MTProtoService) Authorize() (*MTProtoService, error) {
 	}
 
 	mtproto.client = client
+	go mtproto.handleUpdates()
+	_ = mtproto.UpdateConfig()
 	return mtproto, nil
+}
+
+// Listens for updates from the MTProto API and delegates them for further processing.
+//
+// Called only after the client has been authorized.
+func (mtproto *MTProtoService) handleUpdates() {
+	if client, err := mtproto.Client(); err == nil {
+		client.On(telegram.OnRaw, mtproto.handlerOnRawUpdate)
+	}
+}
+
+// handlerOnRawUpdate processes raw updates received from the client.
+//
+// It handles configuration updates and logs other raw updates for debugging purposes.
+//
+// Parameters:
+//   u telegram.Update - The update received from the MTProto API.
+//   _ *telegram.Client - The client instance (unused).
+//
+// Returns:
+//   error - Returns an error if updating the config fails, otherwise nil.
+func (mtproto *MTProtoService) handlerOnRawUpdate(u telegram.Update, _ *telegram.Client) error {
+	switch update := u.(type) {
+	case *telegram.UpdateConfig:
+		err := mtproto.UpdateConfig()
+		if err != nil {
+			log := logging.LoggerString(update)
+			fs.Error(log, err.Error())
+		}
+	default:
+		fs.Debugf(
+			logging.LoggerString(update),
+			"Received raw update: %v",
+			update,
+		)
+	}
+
+	return nil
 }
 
 // Try to reconnect the MTProto instance.
 // If using a Test Data Center, also reconnect to MTProto API.
 //
-// Definition:
-//
-//	ActiveReconnect() error
-//
 // Returns:
 //
 //	error - If an error occurs while reconnecting.
 func (mtproto *MTProtoService) ActiveReconnect() error {
-	tcp := mtproto.client.TcpState()
+	var client *telegram.Client = mtproto.client
+	if client == nil {
+		err := logging.ErrInvalidClient
+		fs.Error(logging.LoggerString(mtproto), err.Error())
+		return err
+	}
+
+	tcp := client.TcpState()
 	active := tcp.Active.Load()
 	if !active {
-		err := mtproto.client.Reconnect(true)
+		err := client.Reconnect(true)
 		if err != nil {
 			fs.Error(logging.LoggerString(mtproto), err.Error())
 			return err
@@ -200,11 +246,7 @@ func (mtproto *MTProtoService) ActiveReconnect() error {
 	return nil
 }
 
-// Returns the MTProto Client instance from the filesystem.
-//
-// Definition:
-//
-//	Client() *telegram.Client
+// Returns the MTProto Client instance from the service.
 //
 // The client would try to reconnect if it's not active.
 // If an error occurs while reconnecting, it returns nil.
@@ -216,6 +258,41 @@ func (mtproto *MTProtoService) Client() (*telegram.Client, error) {
 	}
 
 	return mtproto.client, nil
+}
+
+// Follow the requirements for updating the MTProto configuration.
+// See [Client Configuration].
+//
+// [Client Configuration]: https://core.telegram.org/api/config#client-configuration
+func (mtproto *MTProtoService) UpdateConfig() error {
+	client, err := mtproto.Client()
+	if err != nil {
+		return err
+	}
+
+	dc, err := client.HelpGetNearestDc()
+	switch err {
+	case nil:
+		mtproto.datacenter = dc
+	default:
+		return err
+	}
+
+	appConfig, _ := client.HelpGetAppConfig(mtproto.appConfig.Hash)
+	switch cfg := appConfig.(type) {
+	case *telegram.HelpAppConfigObj:
+		mtproto.appConfig = cfg
+	}
+
+	config, err := client.HelpGetConfig()
+	switch err {
+	case nil:
+		mtproto.config = config
+	default:
+		return err
+	}
+
+	return nil
 }
 
 // Create a new supergroup with forum topics.
