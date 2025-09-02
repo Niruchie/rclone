@@ -19,8 +19,8 @@ import (
 
 // Wraps a filesystem with a mutex lock.
 type ManagerWithLock struct {
-	Fs   fs.Fs
-	Lock sync.Mutex
+	Lock  sync.Mutex
+	Token string
 }
 
 // Filesystem with its properties.
@@ -70,12 +70,11 @@ func Fs(ctx context.Context, name string, root string, m configmap.Mapper) (fs.F
 
 	managers := []ManagerWithLock{}
 	// ? Register the filesystem managers
-	for _, manager := range f.Managers {
-		bs, err := fs.NewFs(ctx, manager)
-		if err != nil {
-			return nil, err
-		}
-		managers = append(managers, ManagerWithLock{Fs: bs})
+	for _, token := range f.Managers {
+		managers = append(managers, ManagerWithLock{
+			Lock:  sync.Mutex{},
+			Token: token,
+		})
 	}
 
 	// ? Set up Filesystem instance

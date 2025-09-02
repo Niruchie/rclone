@@ -14,7 +14,7 @@ type Options struct {
 	AppHash        string `config:"app_hash"`
 	PublicKey      string `config:"public_key"`
 	PhoneNumber    string `config:"phone_number"`
-	DialogFilterId int64  `config:"dialog_filter_id"`
+	SupergroupId   int64  `config:"supergroup_id"`
 
 	Managers              fs.SpaceSepList `config:"managers"`
 	ChunkSize             int64           `config:"chunk_size"`
@@ -111,14 +111,6 @@ var (
 		{
 			Help:      "App Hash for Telegram API",
 			Name:      "app_hash",
-			Advanced:  false,
-			Required:  true,
-			Sensitive: true,
-		},
-
-		{
-			Help:      "Bot Token for Telegram API",
-			Name:      "bot_token",
 			Advanced:  false,
 			Required:  true,
 			Sensitive: true,

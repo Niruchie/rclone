@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"sync"
-	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
 	"github.com/rclone/rclone/backend/mtproto/configuration/logging"
@@ -34,9 +33,6 @@ func NewMTProtoService(ctx context.Context) *MTProtoService {
 		channels:        cache.New(),
 		client:          nil,
 	}
-
-	maxCacheDuration := time.Duration(service.MaxCacheTime) * time.Second
-	service.channels.SetExpireDuration(maxCacheDuration)
 
 	service.pacer.SetMaxConnections(service.MaxConnections)
 	service.pacer.SetRetries(service.MaxRetries)
@@ -220,4 +216,52 @@ func (mtproto *MTProtoService) Client() (*telegram.Client, error) {
 	}
 
 	return mtproto.client, nil
+}
+
+// Create a new supergroup with forum topics.
+//
+// Parameters:
+//
+//	ctx context.Context - The context for the request.
+//	title string - The title of the channel.
+//
+// Returns:
+//
+//	channel telegram.Channel - The created channel.
+//	created bool - Whether the channel was created successfully.
+//	err error - If an error occurs while creating the channel.
+func (mtproto *MTProtoService) CreateChannel(ctx context.Context, title string) (channel telegram.Channel, created bool, err error) {
+	mtproto.lockDirectories.Lock()
+	defer mtproto.lockDirectories.Unlock()
+
+	client, err := mtproto.Client()
+	if err != nil {
+		return channel, false, err
+	}
+
+	// Supergroup non importable with forum topics
+	details := &telegram.ChannelsCreateChannelParams{
+		About:     title,
+		Title:     title,
+		ForImport: false,
+		Megagroup: true,
+		Forum:     true,
+	}
+
+	raw, err := client.ChannelsCreateChannel(details)
+	if err != nil {
+		return channel, false, err
+	}
+
+	updates, ok := raw.(*telegram.UpdatesObj)
+	if !ok || len(updates.Chats) <= 0 {
+		return channel, false, err
+	}
+
+	update, created := updates.Chats[0].(*telegram.Channel)
+	if created {
+		channel = *update
+	}
+
+	return channel, created, err
 }
