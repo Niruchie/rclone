@@ -6,13 +6,15 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"math"
+	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
 	"github.com/rclone/rclone/backend/mtproto/configuration/logging"
 	"github.com/rclone/rclone/backend/mtproto/configuration/options"
 	"github.com/rclone/rclone/fs"
-	"github.com/rclone/rclone/lib/cache"
 	"github.com/rclone/rclone/lib/pacer"
 )
 
@@ -22,7 +24,6 @@ type MTProtoService struct {
 	client          *telegram.Client
 	config          *telegram.Config
 	appConfig       *telegram.HelpAppConfigObj
-	channels        *cache.Cache
 	pacer           *pacer.Pacer
 	lockDirectories sync.Mutex
 	options.Options
@@ -31,12 +32,11 @@ type MTProtoService struct {
 // NewMTProtoService creates a new MTProtoService instance.
 func NewMTProtoService(ctx context.Context) *MTProtoService {
 	pacer := pacer.New()
-	
+
 	service := &MTProtoService{
 		appConfig:       &telegram.HelpAppConfigObj{},
 		config:          &telegram.Config{},
 		lockDirectories: sync.Mutex{},
-		channels:        cache.New(),
 		pacer:           pacer,
 		client:          nil,
 	}
@@ -63,14 +63,14 @@ func (mtproto *MTProtoService) DecodePublicKeys() ([]*rsa.PublicKey, error) {
 	// ? Decode the public key.
 	decoded, err := base64.StdEncoding.DecodeString(mtproto.PublicKey)
 	if err != nil {
-		// return nil, types.ErrInvalidBase64PublicKey
+		return nil, logging.ErrInvalidBase64PublicKey
 	}
 
 	// ? Decode the PEM block.
 	block, _ := pem.Decode([]byte(decoded))
 	key, err := x509.ParsePKCS1PublicKey(block.Bytes)
 	if err != nil {
-		// return nil, types.ErrInvalidRSAPublicKey
+		return nil, logging.ErrInvalidRSAPublicKey
 	}
 
 	return []*rsa.PublicKey{key}, nil
@@ -114,10 +114,20 @@ func (mtproto *MTProtoService) ServiceConnect(openSession bool) (*telegram.Clien
 			AppVersion:    fs.VersionSuffix,
 			SystemVersion: fs.VersionTag,
 		},
+		Cache: telegram.NewCache(
+			telegram.Restricted,
+			&telegram.CacheConfig{
+				Disabled: !options.DisableCache,
+				Memory:   options.DisableCache,
+				LogName:  telegram.Restricted,
+				LogLevel: telegram.LogDisable,
+				MaxSize:  math.MaxInt16,
+			},
+		),
+		FloodHandler:  mtproto.handleFloodWait,
 		MemorySession: options.MemorySession,
-		DisableCache:  options.DisableCache,
+		LogLevel:      telegram.LogDisable,
 		TestMode:      service.TestServer,
-		LogLevel:      telegram.LogError,
 		AppHash:       service.AppHash,
 		AppID:         service.AppId,
 		StringSession: session,
@@ -173,12 +183,32 @@ func (mtproto *MTProtoService) Authorize() (*MTProtoService, error) {
 			fs.Error(logging.LoggerString(mtproto), err.Error())
 			return nil, err
 		}
+
+		go mtproto.handleUpdates()
+		_ = mtproto.UpdateConfig()
 	}
 
 	mtproto.client = client
-	go mtproto.handleUpdates()
-	_ = mtproto.UpdateConfig()
 	return mtproto, nil
+}
+
+// Waits for the specified duration if a flood wait error is encountered.
+//
+// Parameters:
+//
+//	err error - The error to check for flood wait.
+//
+// Returns:
+//
+//	bool - Returns true if a flood wait was handled, otherwise false.
+func (mtproto *MTProtoService) handleFloodWait(err error) bool {
+	if wait := telegram.GetFloodWait(err); wait > 0 {
+		log := "flood wait, pausing for %d seconds"
+		fs.Infof(logging.LoggerString(err), log, wait)
+		time.Sleep(time.Duration(wait) * time.Second)
+		return true
+	}
+	return false
 }
 
 // Listens for updates from the MTProto API and delegates them for further processing.
@@ -195,11 +225,13 @@ func (mtproto *MTProtoService) handleUpdates() {
 // It handles configuration updates and logs other raw updates for debugging purposes.
 //
 // Parameters:
-//   u telegram.Update - The update received from the MTProto API.
-//   _ *telegram.Client - The client instance (unused).
+//
+//	u telegram.Update - The update received from the MTProto API.
+//	_ *telegram.Client - The client instance (unused).
 //
 // Returns:
-//   error - Returns an error if updating the config fails, otherwise nil.
+//
+//	error - Returns an error if updating the config fails, otherwise nil.
 func (mtproto *MTProtoService) handlerOnRawUpdate(u telegram.Update, _ *telegram.Client) error {
 	switch update := u.(type) {
 	case *telegram.UpdateConfig:
@@ -260,6 +292,13 @@ func (mtproto *MTProtoService) Client() (*telegram.Client, error) {
 	return mtproto.client, nil
 }
 
+// Returns the pacer instance from the filesystem.
+//
+// The pacer is used to avoid rate limiting from data centers.
+func (mtproto *MTProtoService) Pacer() *pacer.Pacer {
+	return mtproto.pacer
+}
+
 // Follow the requirements for updating the MTProto configuration.
 // See [Client Configuration].
 //
@@ -295,11 +334,13 @@ func (mtproto *MTProtoService) UpdateConfig() error {
 	return nil
 }
 
+// ----- Channel Management -----
+
 // Create a new supergroup with forum topics.
 //
 // Parameters:
 //
-//	ctx context.Context - The context for the request.
+//	_ context.Context - The context for the request.
 //	title string - The title of the channel.
 //
 // Returns:
@@ -307,7 +348,7 @@ func (mtproto *MTProtoService) UpdateConfig() error {
 //	channel telegram.Channel - The created channel.
 //	created bool - Whether the channel was created successfully.
 //	err error - If an error occurs while creating the channel.
-func (mtproto *MTProtoService) CreateChannel(ctx context.Context, title string) (channel telegram.Channel, created bool, err error) {
+func (mtproto *MTProtoService) CreateChannel(_ context.Context, title string) (channel telegram.Channel, created bool, err error) {
 	mtproto.lockDirectories.Lock()
 	defer mtproto.lockDirectories.Unlock()
 
@@ -341,4 +382,264 @@ func (mtproto *MTProtoService) CreateChannel(ctx context.Context, title string) 
 	}
 
 	return channel, created, err
+}
+
+// ----- Forum Topic Management -----
+
+// Fetch [forum topics] (directories) from the client.
+//
+// Parameters:
+//
+//	_ context.Context - The context for the request.
+//	forumTopicSearch telegram.ForumTopicObj - The search criteria for the forum topics.
+//
+// [forum topics]: https://core.telegram.org/api/forum#forum-topics
+func (mtproto *MTProtoService) GetTopics(_ context.Context, forumTopicSearch telegram.ForumTopicObj) (forumTopics []telegram.ForumTopicObj, err error) {
+	client, err := mtproto.Client()
+	if err != nil {
+		return forumTopics, err
+	}
+
+	channel, err := client.GetChannel(mtproto.SupergroupId)
+	if err != nil {
+		return forumTopics, err
+	}
+
+	input := &telegram.InputChannelObj{
+		AccessHash: channel.AccessHash,
+		ChannelID:  channel.ID,
+	}
+
+	forum, err := client.ChannelsGetForumTopics(&telegram.ChannelsGetForumTopicsParams{
+		Q:       forumTopicSearch.Title,
+		Limit:   math.MaxInt32,
+		Channel: input,
+	})
+	if err != nil {
+		return forumTopics, err
+	}
+
+	forumTopics = []telegram.ForumTopicObj{}
+	for i := range forum.Topics {
+		if topic, ok := forum.Topics[i].(*telegram.ForumTopicObj); ok {
+			forumTopics = append(forumTopics, *topic)
+		}
+	}
+
+	return forumTopics, nil
+}
+
+// Create a new [forum topic] (directory) within the [forum supergroup].
+//
+// Parameters:
+//
+//	_ context.Context - The context for the request.
+//	title string - The title of the topic.
+//
+// Returns:
+//
+//	forumTopic telegram.ForumTopicObj - The created forum topic.
+//	created bool - Whether the forum topic was created successfully.
+//	err error - If an error occurs while creating the forum topic.
+//
+// [forum topic]: https://core.telegram.org/api/forum#forum-topics
+// [forum supergroup]: https://core.telegram.org/api/channel#forums
+func (mtproto *MTProtoService) CreateTopic(ctx context.Context, forumTopicIn telegram.ForumTopicObj) (forumTopic telegram.ForumTopicObj, created bool, err error) {
+	mtproto.lockDirectories.Lock()
+	defer mtproto.lockDirectories.Unlock()
+
+	// Search for existing forum topic with request.
+	topics, err := mtproto.GetTopics(ctx, forumTopicIn)
+	if err != nil {
+		return forumTopic, created, err
+	}
+
+	// Search within the filtered forum topics.
+	for _, topic := range topics {
+		if topic.Title == forumTopicIn.Title {
+			forumTopic = topic
+			return forumTopic, created, nil
+		}
+	}
+
+	// Create the forum topic if it does not exist
+	client, err := mtproto.Client()
+	if err != nil {
+		return forumTopic, created, err
+	}
+
+	channel, err := client.GetChannel(mtproto.SupergroupId)
+	if err != nil {
+		return forumTopic, created, err
+	}
+
+	input := &telegram.InputChannelObj{
+		AccessHash: channel.AccessHash,
+		ChannelID:  channel.ID,
+	}
+
+	response, err := client.ChannelsCreateForumTopic(&telegram.ChannelsCreateForumTopicParams{
+		Title:    forumTopicIn.Title,
+		RandomID: rand.Int63(),
+		Channel:  input,
+	})
+
+	updates, ok := response.(*telegram.UpdatesObj)
+	if !ok || len(updates.Updates) <= 0 {
+		return forumTopic, created, logging.ErrOperationWithoutUpdates
+	}
+
+	forumTopicIds := []int32{}
+	switch u := updates.Updates[0].(type) {
+	// The service message update.
+	case *telegram.UpdateMessageID:
+		forumTopicIds = append(forumTopicIds, u.ID)
+
+	// Search for the service message, on message update.
+	case *telegram.UpdateNewChannelMessage:
+		if message, ok := u.Message.(*telegram.MessageService); ok {
+			forumTopicIds = append(forumTopicIds, message.ID)
+			break
+		}
+		return forumTopic, created, logging.ErrOperationWithoutUpdates
+
+	default:
+		return forumTopic, created, logging.ErrOperationWithoutUpdates
+	}
+
+	// Fetch the created forum topic using its message id.
+	query, err := client.ChannelsGetForumTopicsByID(input, forumTopicIds)
+	switch {
+	case err != nil:
+		return forumTopic, created, err
+	case len(query.Topics) <= 0:
+		return forumTopic, created, logging.ErrOperationWithoutUpdates
+	}
+
+	createdForumTopic, ok := query.Topics[0].(*telegram.ForumTopicObj)
+	if !ok {
+		return forumTopic, created, logging.ErrOperationWithoutUpdates
+	}
+
+	created = true
+	forumTopic = *createdForumTopic
+	return forumTopic, created, err
+}
+
+// Remove the history of a [forum topic] (directory) within the [forum supergroup].
+//
+// Check the [forum topic] (directory) is empty before calling this method.
+//
+// The [forum topic] will be deleted along with its history.
+//
+// Parameters:
+//
+//	_ context.Context - The context for the request.
+//	forumTopicIn telegram.ForumTopicObj - The forum topic to delete.
+//
+// [forum topic]: https://core.telegram.org/api/forum#forum-topics
+// [forum supergroup]: https://core.telegram.org/api/channel#forums
+func (mtproto *MTProtoService) DeleteTopic(ctx context.Context, forumTopicIn telegram.ForumTopicObj) (err error) {
+	mtproto.lockDirectories.Lock()
+	defer mtproto.lockDirectories.Unlock()
+
+	// Some forum topics cannot be deleted.
+	switch forumTopicIn.ID {
+	case 0x00:
+		return logging.ErrUnsupportedOperation
+	case options.ChannelRootTopicId:
+		return logging.ErrUnsupportedOperation
+	default:
+		client, err := mtproto.Client()
+		if err != nil {
+			return err
+		}
+
+		channel, err := client.GetChannel(mtproto.SupergroupId)
+		if err != nil {
+			return err
+		}
+
+		input := &telegram.InputChannelObj{
+			AccessHash: channel.AccessHash,
+			ChannelID:  channel.ID,
+		}
+
+		_, err = client.ChannelsDeleteTopicHistory(input, forumTopicIn.ID)
+		return err
+	}
+}
+
+// Update the [forum topic] (directory) within the [forum supergroup].
+//
+// Parameters:
+//
+//	_ context.Context - The context for the request.
+//	forumTopicIn telegram.ForumTopicObj - The forum topic to update.
+//
+// Returns:
+//
+//	forumTopic telegram.ForumTopicObj - The updated forum topic.
+//	updated bool - Whether the forum topic was updated successfully.
+//	err error - If an error occurs while updating the forum topic.
+//
+// [forum topic]: https://core.telegram.org/api/forum#forum-topics
+// [forum supergroup]: https://core.telegram.org/api/channel#forums
+func (mtproto *MTProtoService) UpdateTopic(_ context.Context, forumTopicIn telegram.ForumTopicObj) (forumTopic telegram.ForumTopicObj, updated bool, err error) {
+	mtproto.lockDirectories.Lock()
+	defer mtproto.lockDirectories.Unlock()
+
+	// Some forum topics should not be updated.
+	switch forumTopicIn.ID {
+	case 0x00:
+		return forumTopic, updated, logging.ErrUnsupportedOperation
+	case options.ChannelRootTopicId:
+		return forumTopic, updated, logging.ErrUnsupportedOperation
+	default:
+		client, err := mtproto.Client()
+		if err != nil {
+			return forumTopic, updated, err
+		}
+
+		channel, err := client.GetChannel(mtproto.SupergroupId)
+		if err != nil {
+			return forumTopic, updated, err
+		}
+
+		input := &telegram.InputChannelObj{
+			AccessHash: channel.AccessHash,
+			ChannelID:  channel.ID,
+		}
+
+		response, err := client.ChannelsEditForumTopic(&telegram.ChannelsEditForumTopicParams{
+			Title:   forumTopicIn.Title,
+			Channel: input,
+			TopicID: forumTopicIn.ID,
+		})
+		if err != nil {
+			return forumTopic, updated, err
+		}
+
+		updates, ok := response.(*telegram.UpdatesObj)
+		if !ok || len(updates.Updates) <= 0 {
+			return forumTopic, updated, logging.ErrOperationWithoutUpdates
+		}
+
+		switch u := updates.Updates[0].(type) {
+		// The service message update.
+		case *telegram.UpdateMessageID:
+			updated = true
+			return forumTopicIn, updated, nil
+
+		// Search for the service message, on message update.
+		case *telegram.UpdateNewChannelMessage:
+			if _, ok := u.Message.(*telegram.MessageService); ok {
+				updated = true
+				return forumTopicIn, updated, nil
+			}
+			return forumTopic, updated, logging.ErrOperationWithoutUpdates
+		default:
+			return forumTopic, updated, logging.ErrOperationWithoutUpdates
+		}
+	}
 }
